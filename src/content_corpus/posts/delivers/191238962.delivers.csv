@@ -1,0 +1,4 @@
+post_id,timestamp,email,post_type,post_audience,active_subscription
+191238962,"Aug 28, 2024",subscriber1@example.com,newsletter,everyone,true
+191238962,"Aug 28, 2024",subscriber2@example.com,newsletter,everyone,true
+191238962,"Aug 28, 2024",subscriber3@example.com,newsletter,everyone,false

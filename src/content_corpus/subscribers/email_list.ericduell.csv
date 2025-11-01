@@ -1,0 +1,4 @@
+email,active_subscription,expiry,plan,email_disabled,created_at,first_payment_at
+subscriber1@example.com,true,,free,false,"Jul 15, 2024",
+subscriber2@example.com,true,,paid,false,"Jun 20, 2024","Jun 20, 2024"
+subscriber3@example.com,false,,free,true,"May 1, 2024",
