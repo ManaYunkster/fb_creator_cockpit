@@ -8,7 +8,7 @@ import ContentCorpusUploader from './components/ContentCorpusUploader';
 import DataProvider, { DataContext } from './contexts/DataContext';
 import SettingsProvider, { SettingsContext } from './contexts/SettingsContext';
 import ContentProvider, { ContentContext } from './contexts/ContentContext';
-import GeminiCorpusProvider, { GeminiCorpusContext } from './contexts/GeminiCorpusContext';
+import GeminiCorpusProvider, { geminiCorpusContext } from './contexts/GeminiCorpusContext';
 import { TestModeProvider, TestModeContext } from './contexts/TestModeContext';
 import { useCorpusProcessor } from './hooks/useCorpusProcessor';
 import { APP_CONFIG } from './config/app_config';
@@ -53,12 +53,10 @@ const AppContent: React.FC = () => {
   const [activeTool, setActiveTool] = useState<Tool | null>(null);
   const dataContext = useContext(DataContext);
   const contentContext = useContext(ContentContext);
-  const geminiCorpusContext = useContext(GeminiCorpusContext);
-  
+      const geminiCorpusCtx = useContext(geminiCorpusContext);  
   const { posts } = dataContext;
   const { contextDocuments } = contentContext;
-  const { status: corpusStatus } = geminiCorpusContext;
-  
+      const { status: corpusStatus } = geminiCorpusCtx;  
   const { isTestMode } = useContext(TestModeContext);
   
   const [isDraggingOverCorpus, setIsDraggingOverCorpus] = useState(false);

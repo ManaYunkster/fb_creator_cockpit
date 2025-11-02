@@ -2,7 +2,7 @@
 
 import React, { useContext } from 'react';
 import { ContentContext } from '../contexts/ContentContext';
-import { GeminiCorpusContext } from '../contexts/GeminiCorpusContext';
+import { geminiCorpusContext } from '../contexts/GeminiCorpusContext';
 import { ContextDocument, GeminiFile } from '../types';
 
 const DocumentGroup: React.FC<{ title: string; documents: ContextDocument[]; contextFiles: Map<string, GeminiFile> }> = ({ title, documents, contextFiles }) => (
@@ -44,7 +44,7 @@ const DocumentGroup: React.FC<{ title: string; documents: ContextDocument[]; con
 
 const ContentContextPanel: React.FC = () => {
     const { contextDocuments, isLoading } = useContext(ContentContext);
-    const { contextFiles } = useContext(GeminiCorpusContext);
+    const { syncedFiles } = useContext(geminiCorpusContext);
 
     const groupedDocuments = contextDocuments.reduce((acc, doc) => {
         const profile = doc.profile || 'General';
@@ -92,7 +92,7 @@ const ContentContextPanel: React.FC = () => {
                 <p>These documents provide foundational context to the AI. They are grouped below by their **Context Profile**, which corresponds to the toggle chips available in tools like the Social Post Assistant and Chat Assistant.</p>
             </div>
             {sortedGroups.map(([profile, docs]) => (
-                <DocumentGroup key={profile} title={profile} documents={docs} contextFiles={contextFiles} />
+                <DocumentGroup key={profile} title={profile} documents={docs} contextFiles={syncedFiles} />
             ))}
         </div>
     );

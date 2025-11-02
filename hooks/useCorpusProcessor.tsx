@@ -3,7 +3,7 @@ import React, { useState, useCallback, useContext } from 'react';
 import JSZip from 'jszip';
 import Papa from 'papaparse';
 import { DataContext } from '../contexts/DataContext';
-import { GeminiCorpusContext } from '../contexts/GeminiCorpusContext';
+import { geminiCorpusContext } from '../contexts/GeminiCorpusContext';
 import { ContentContext } from '../contexts/ContentContext';
 import * as corpusProcessingService from '../services/corpusProcessingService';
 import { log } from '../services/loggingService';
@@ -22,7 +22,7 @@ export const useCorpusProcessor = (options: CorpusProcessorOptions = {}) => {
     const [isDragging, setIsDragging] = useState<boolean>(false);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
     const { setPosts, resetData, setDeliveryRecords, setOpenRecords, setSubscriberRecords, setIsCorpusReady } = useContext(DataContext);
-    const { syncCorpus } = useContext(GeminiCorpusContext);
+    const { syncCorpus } = useContext(geminiCorpusContext);
     const { loadContext } = useContext(ContentContext);
 
     const resetState = useCallback(async () => {
@@ -61,7 +61,7 @@ export const useCorpusProcessor = (options: CorpusProcessorOptions = {}) => {
                         newFileContents.set(path, content);
                     } catch (err) {
                         log.error(`Could not read file '${path}' as text, skipping.`, err);
-                    }
+                    } 
                 }
             }
             

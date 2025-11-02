@@ -1,6 +1,6 @@
 import React, { useState, useContext, useMemo, useEffect } from 'react';
 import { Type } from '@google/genai';
-import { GeminiCorpusContext } from '../contexts/GeminiCorpusContext';
+import { geminiCorpusContext } from '../contexts/GeminiCorpusContext';
 import { SettingsContext } from '../contexts/SettingsContext';
 import { ContentContext } from '../contexts/ContentContext';
 import * as geminiFileService from '../services/geminiFileService';
@@ -105,9 +105,22 @@ const QuoteFinder: React.FC = () => {
     const [utmCampaign, setUtmCampaign] = useState('');
     const [utmTerm, setUtmTerm] = useState('');
 
-    const { corpusFiles, contextFiles: geminiContextFiles, status: corpusStatus } = useContext(GeminiCorpusContext);
+    const { syncedFiles, status: corpusStatus } = useContext(geminiCorpusContext);
     const { modelConfig } = useContext(SettingsContext);
     const { contextDocuments } = useContext(ContentContext);
+
+    const { corpusFiles, geminiContextFiles } = useMemo(() => {
+        const corpus = new Map<string, GeminiFile>();
+        const context = new Map<string, GeminiFile>();
+        for (const [key, file] of syncedFiles.entries()) {
+            if (file.context === 'corpus') {
+                corpus.set(key, file);
+            } else {
+                context.set(key, file);
+            }
+        }
+        return { corpusFiles: corpus, geminiContextFiles: context };
+    }, [syncedFiles]);
 
     const modeLabels: Record<Mode, string> = {
         quote: 'Quote Finder',

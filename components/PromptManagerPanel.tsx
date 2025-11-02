@@ -203,15 +203,7 @@ const PromptManagerPanel: React.FC<PromptManagerPanelProps> = ({ isOpen, onClose
                             </>
                         )}
                     </main>
-                     <footer className="flex justify-between items-center gap-4 p-4 bg-gray-900/50 border-t border-gray-700">
-                         <div>
-                            <button
-                                onClick={() => setIsPurgeConfirmModalOpen(true)}
-                                className="px-4 py-2 bg-red-800 text-white rounded-md hover:bg-red-700 transition-colors focus:outline-none focus:ring-2 focus:ring-red-600"
-                            >
-                                Purge Database
-                            </button>
-                         </div>
+                    <footer className="flex justify-between items-center gap-4 p-4 bg-gray-900/50 border-t border-gray-700">
                          <div className="flex gap-4">
                             <button
                                 onClick={handleCopy}

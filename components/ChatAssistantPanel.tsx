@@ -1,8 +1,8 @@
-import React, { useState, useCallback, useRef, useContext, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useContext, useEffect, useMemo } from 'react';
 // FIX: Removed `GeminiFile as ApiGeminiFile` from this import because `@google/genai` does not export `GeminiFile`.
 import { GoogleGenAI, GenerateContentResponse, Chat } from '@google/genai';
 import { SettingsContext } from '../contexts/SettingsContext';
-import { GeminiCorpusContext } from '../contexts/GeminiCorpusContext';
+import { geminiCorpusContext } from '../contexts/GeminiCorpusContext';
 import { ContentContext } from '../contexts/ContentContext';
 import { AI_PROMPTS } from '../services/promptService';
 import { GeminiFile } from '../types';
@@ -44,11 +44,21 @@ const ChatAssistantPanel: React.FC = () => {
     const [copyStatus, setCopyStatus] = useState<Record<number, boolean>>({});
 
     const { modelConfig } = useContext(SettingsContext);
-    const { contextFiles, corpusFiles } = useContext(GeminiCorpusContext);
+    const { syncedFiles } = useContext(geminiCorpusContext);
     const { contextDocuments } = useContext(ContentContext);
     const chatRef = useRef<Chat | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const isGeneratingRef = useRef(false);
+
+    const corpusFiles = useMemo(() => {
+        const corpus = new Map<string, GeminiFile>();
+        for (const [key, file] of syncedFiles.entries()) {
+            if (file.context === 'corpus') {
+                corpus.set(key, file);
+            }
+        }
+        return corpus;
+    }, [syncedFiles]);
     
     useEffect(() => {
         // If a chat session exists and the context changes, show a warning.
@@ -108,7 +118,7 @@ const ChatAssistantPanel: React.FC = () => {
         }
 
         const fileDetails = docsInProfile.map(doc => {
-            const geminiFile = contextFiles.get(doc.id);
+            const geminiFile = syncedFiles.get(doc.id);
             if (geminiFile) {
                 return `- ${geminiFile.cachedDisplayName || geminiFile.displayName}\n  (API ID: ${geminiFile.name})`;
             }
@@ -183,8 +193,8 @@ const ChatAssistantPanel: React.FC = () => {
                 });
 
                 const contextDocIds = new Set(documentsForPrompt.map(d => d.id));
-                // FIX: Explicitly typed 'f' as GeminiFile to resolve type inference issues.
-                const geminiFilesForPrompt = Array.from(contextFiles.values()).filter((f: GeminiFile) => contextDocIds.has(f.displayName));
+                const geminiFilesForPrompt = Array.from(syncedFiles.values()) as GeminiFile[];
+                const filteredGeminiFilesForPrompt = geminiFilesForPrompt.filter((f: GeminiFile) => contextDocIds.has(f.displayName as string));
                 
                 // Add active corpus files
                 const activeCorpusFileObjects = Array.from(activeCorpusPills)
@@ -192,10 +202,8 @@ const ChatAssistantPanel: React.FC = () => {
                     .filter((file): file is GeminiFile => !!file);
                 
                 const allPersistentFiles = [...geminiFilesForPrompt, ...activeCorpusFileObjects];
-                // FIX: Explicitly typed 'f' as GeminiFile to resolve type inference issues.
                 const uniqueFiles = Array.from(new Map(allPersistentFiles.map((f: GeminiFile) => [f.name, f])).values());
 
-                // FIX: Explicitly typed 'file' as GeminiFile to resolve type inference issues.
                 uniqueFiles.forEach((file: GeminiFile) => {
                     parts.push({ fileData: { mimeType: file.mimeType, fileUri: file.uri } });
                 });
@@ -259,8 +267,7 @@ const ChatAssistantPanel: React.FC = () => {
         setError(null);
 
         try {
-            // FIX: Explicitly typed 'file' as File to resolve type inference issues.
-            const uploadPromises = Array.from(files).map((file: File) => 
+            const uploadPromises = Array.from(files as File[]).map((file: File) => 
                 geminiFileService.uploadFileToApiOnly(file, { displayName: file.name })
             );
             const uploadedFiles = await Promise.all(uploadPromises);
@@ -274,7 +281,7 @@ const ChatAssistantPanel: React.FC = () => {
     };
 
     const handleFilesSelected = (files: GeminiFile[]) => {
-        const newFiles = files.filter(f => !attachedFiles.some(af => af.name === f.name));
+        const newFiles = files.filter((f: GeminiFile) => !attachedFiles.some(af => af.name === f.name));
         setAttachedFiles(prev => [...prev, ...newFiles]);
     };
     
@@ -283,7 +290,7 @@ const ChatAssistantPanel: React.FC = () => {
     };
 
     const handleRemoveFile = (fileName: string) => {
-        setAttachedFiles(prev => prev.filter(f => f.name !== fileName));
+        setAttachedFiles(prev => prev.filter((f: GeminiFile) => f.name !== fileName));
     };
 
     const handleNewChat = () => {
@@ -322,7 +329,7 @@ const ChatAssistantPanel: React.FC = () => {
                                         <div className="prose prose-sm prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: part.text }} />
                                         {part.files && part.files.length > 0 && (
                                             <div className="mt-2 space-y-1">
-                                                {part.files.map(file => (
+                                                {part.files.map((file: GeminiFile) => (
                                                     <div key={file.name} className="bg-blue-500/80 p-1.5 rounded-md text-xs">
                                                         Attached File: {file.cachedDisplayName || file.name}
                                                     </div>
@@ -366,16 +373,16 @@ const ChatAssistantPanel: React.FC = () => {
                 
                 {(attachedFiles.length > 0 || attachedUrls.length > 0) && (
                     <div className="mb-2 flex flex-wrap gap-2">
-                        {attachedFiles.map(file => (
+                        {attachedFiles.map((file: GeminiFile) => (
                             <div key={file.name} className="flex items-center gap-1.5 text-xs px-2 py-1 bg-gray-700 rounded-full">
                                 <span>{file.cachedDisplayName || file.name}</span>
                                 <button onClick={() => handleRemoveFile(file.name)} className="text-gray-400 hover:text-white"><XMarkIcon className="w-3 h-3" /></button>
                             </div>
                         ))}
-                         {attachedUrls.map(url => (
+                         {attachedUrls.map((url: string) => (
                             <div key={url} className="flex items-center gap-1.5 text-xs px-2 py-1 bg-gray-700 rounded-full">
                                 <span className="truncate max-w-xs">{url}</span>
-                                <button onClick={() => setAttachedUrls(urls => urls.filter(u => u !== url))} className="text-gray-400 hover:text-white"><XMarkIcon className="w-3 h-3" /></button>
+                                <button onClick={() => setAttachedUrls((urls: string[]) => urls.filter(u => u !== url))} className="text-gray-400 hover:text-white"><XMarkIcon className="w-3 h-3" /></button>
                             </div>
                         ))}
                     </div>
@@ -444,10 +451,9 @@ const ChatAssistantPanel: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-xs font-medium text-gray-400">Corpus Data:</span>
-                            {/* FIX: Explicitly typed 'fileName' as string to resolve type inference issues. */}
-                            {Array.from(corpusFiles.keys())
+                            {(Array.from(corpusFiles.keys()) as string[])
                                 .filter((fileName: string) => fileName.endsWith('.json') || fileName.endsWith('.csv'))
-                                .map(fileName => {
+                                .map((fileName: string) => {
                                     const file = corpusFiles.get(fileName);
                                     if (!file) return null;
                                     const tooltip = `File: ${file.cachedDisplayName || 'N/A'}\nAPI ID: ${file.name}`;

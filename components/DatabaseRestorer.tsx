@@ -1,11 +1,10 @@
-
 import React, { useState, useRef, useCallback, useContext } from 'react';
 import JSZip from 'jszip';
 import { log } from '../services/loggingService';
 import * as dbService from '../services/dbService';
 import { DataContext } from '../contexts/DataContext';
 import { ContentContext } from '../contexts/ContentContext';
-import { GeminiCorpusContext } from '../contexts/GeminiCorpusContext';
+import { geminiCorpusContext } from '../contexts/GeminiCorpusContext';
 
 interface DatabaseRestorerProps {
     onClose: () => void;
@@ -21,7 +20,7 @@ const DatabaseRestorer: React.FC<DatabaseRestorerProps> = ({ onClose }) => {
     
     const dataContext = useContext(DataContext);
     const contentContext = useContext(ContentContext);
-    const geminiCorpusContext = useContext(GeminiCorpusContext);
+    const geminiCorpusCtx = useContext(geminiCorpusContext);
 
     const restoreAndRefresh = useCallback(async (file: File) => {
         setIsLoading(true);
@@ -48,7 +47,7 @@ const DatabaseRestorer: React.FC<DatabaseRestorerProps> = ({ onClose }) => {
             await contentContext.loadContext();
             
             setProgressMessage('Syncing files with remote store...');
-            await geminiCorpusContext.refreshSyncedFiles();
+            await geminiCorpusCtx.syncCorpus();
 
             setProgressMessage('Restore complete!');
             
@@ -62,7 +61,7 @@ const DatabaseRestorer: React.FC<DatabaseRestorerProps> = ({ onClose }) => {
             setProgressMessage('');
             setIsLoading(false);
         }
-    }, [dataContext, contentContext, geminiCorpusContext, onClose]);
+    }, [dataContext, contentContext, geminiCorpusCtx, onClose]);
     
     const processFile = useCallback((file: File) => {
         if (!file || !file.type.includes('zip')) {

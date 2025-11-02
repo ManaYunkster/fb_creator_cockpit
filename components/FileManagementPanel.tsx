@@ -6,7 +6,7 @@ import ConfirmationModal from './ConfirmationModal';
 import { log } from '../services/loggingService';
 import { FILE_PURPOSES, buildInternalFileName } from '../config/file_naming_config';
 import LockClosedIcon from './icons/LockClosedIcon';
-import { GeminiCorpusContext } from '../contexts/GeminiCorpusContext';
+import { geminiCorpusContext } from '../contexts/GeminiCorpusContext';
 import { ContentContext } from '../contexts/ContentContext';
 import * as dbService from '../services/dbService';
 import FolderOpenIcon from './icons/FolderOpenIcon';
@@ -30,7 +30,7 @@ const formatDate = (dateString?: string) => {
 };
 
 const FileManagementPanel: React.FC = () => {
-    const { refreshSyncedFiles, forceResync } = useContext(GeminiCorpusContext);
+    const { refreshSyncedFiles, forceResync } = useContext(geminiCorpusContext);
     const { addContextDocument, removeContextDocument } = useContext(ContentContext);
     
     const [files, setFiles] = useState<GeminiFile[]>([]);
@@ -56,6 +56,21 @@ const FileManagementPanel: React.FC = () => {
     const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
     const [filesToDelete, setFilesToDelete] = useState<string[]>([]);
     const [isForceResyncModalOpen, setIsForceResyncModalOpen] = useState(false);
+    const [isPurgeConfirmModalOpen, setIsPurgeConfirmModalOpen] = useState(false);
+
+    const handleConfirmPurge = async () => {
+        log.info('FileManagementPanel: Purge confirmed. Deleting entire database.');
+        setIsPurgeConfirmModalOpen(false);
+        try {
+            await dbService.purgeDatabase();
+            // Force a full reload to reset all application state
+            window.location.reload();
+        } catch (error) {
+            log.error('Failed to purge database', error);
+            setError('Failed to purge database. Check console for details.');
+        }
+    };
+
 
     const loadFiles = useCallback(async () => {
         setIsLoading(true);
@@ -463,6 +478,7 @@ const FileManagementPanel: React.FC = () => {
                 <header className="flex items-center justify-between p-4 border-b border-gray-700">
                     <h3 className="text-lg font-bold text-gray-100">Managed Files ({files.length})</h3>
                     <div className="flex items-center gap-2">
+                        <button onClick={() => setIsPurgeConfirmModalOpen(true)} disabled={isLoading} className="px-3 py-1 bg-red-800 text-sm text-white rounded-md hover:bg-red-700 disabled:opacity-50 transition-colors">Purge Database</button>
                         <button onClick={() => setIsForceResyncModalOpen(true)} disabled={isLoading} className="px-3 py-1 bg-yellow-600 text-sm text-white rounded-md hover:bg-yellow-500 disabled:opacity-50 transition-colors">Force Resync</button>
                         <button onClick={loadFiles} disabled={isLoading} className="px-3 py-1 bg-gray-700 text-sm text-gray-300 rounded-md hover:bg-gray-600 disabled:opacity-50 transition-colors">Refresh</button>
                     </div>
@@ -574,6 +590,17 @@ const FileManagementPanel: React.FC = () => {
                 message="Are you sure you want to force a resync? This will make the remote file store an exact mirror of your current local database. It will permanently delete any application-managed files (__cc_*) on the server that do not exist on this device."
                 confirmButtonText="Confirm Sync"
                 confirmButtonClassName="bg-yellow-600 hover:bg-yellow-500 focus:ring-yellow-500"
+            />
+
+            {/* Confirmation Modal for Purge Database */}
+            <ConfirmationModal
+                isOpen={isPurgeConfirmModalOpen}
+                onClose={() => setIsPurgeConfirmModalOpen(false)}
+                onConfirm={handleConfirmPurge}
+                title="Confirm Database Purge"
+                message="Are you sure you want to permanently delete the entire local database? This will remove all cached files, context documents, and other application data. This action cannot be undone."
+                confirmButtonText="Purge Database"
+                confirmButtonClassName="bg-red-600 hover:bg-red-500 focus:ring-red-500"
             />
         </div>
     );

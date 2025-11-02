@@ -3,7 +3,7 @@ import { GoogleGenAI, GenerateContentResponse } from '@google/genai';
 import { DataContext } from '../contexts/DataContext';
 import { SettingsContext } from '../contexts/SettingsContext';
 import { ContentContext } from '../contexts/ContentContext';
-import { GeminiCorpusContext } from '../contexts/GeminiCorpusContext';
+import { geminiCorpusContext } from '../contexts/GeminiCorpusContext';
 import { AI_PROMPTS } from '../services/promptService';
 import { VENUE_LENGTH_CONFIG, VENUE_UTM_CONFIG } from '../config/social_post_config';
 import * as geminiFileService from '../services/geminiFileService';
@@ -115,8 +115,18 @@ const SocialPostAssistant: React.FC = () => {
     const { posts } = useContext(DataContext);
     const { modelConfig } = useContext(SettingsContext);
     const { contextDocuments } = useContext(ContentContext);
-    const { contextFiles: geminiContextFiles } = useContext(GeminiCorpusContext);
+    const { syncedFiles } = useContext(geminiCorpusContext);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const geminiContextFiles = useMemo(() => {
+        const context = new Map<string, GeminiFile>();
+        for (const [key, file] of syncedFiles.entries()) {
+            if (file.context !== 'corpus') {
+                context.set(key, file);
+            }
+        }
+        return context;
+    }, [syncedFiles]);
 
     const availablePosts = useMemo(() => {
         return posts.filter(p => p.type !== 'adhoc_email');
@@ -411,7 +421,7 @@ const SocialPostAssistant: React.FC = () => {
                 setProgressMessage(finalItems.length > 1 ? `Generating post ${index + 1} of ${finalItems.length}` : 'Generating social post...');
                 const response = await callGeminiForPost(item.quote, undefined, currentFetchedContent, documentsForPrompt);
                 
-                const content = response.text;
+                const content = response.text || '';
                 const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
                 const sources: GroundingSource[] | undefined = groundingChunks
                     ?.map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
@@ -586,7 +596,7 @@ const SocialPostAssistant: React.FC = () => {
         const postToRegen = generatedPosts[index];
         setGeneratedPosts(prev => prev.map((p, i) => i === index ? { ...p, isRegenerating: true } : p));
         try {
-            const documentsForPrompt = contextDocuments.filter(doc => {
+            const documentsForPrompt = contextDocuments.filter((doc: ContextDocument) => {
                 const parsed = parseInternalFileName(doc.id);
                 if (!parsed) return false;
 
@@ -597,7 +607,7 @@ const SocialPostAssistant: React.FC = () => {
                 return false;
             });
             const response = await callGeminiForPost(postToRegen.quote, feedback, useCustomUrl ? fetchedUrlContent : null, documentsForPrompt);
-            const newContent = response.text;
+            const newContent = response.text || '';
             const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
             const newSources: { uri: string; title: string }[] | undefined = groundingChunks
                 ?.map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
