@@ -4,6 +4,7 @@ import { Post, DeliveryRecord, OpenRecord, SubscriberRecord, DataContextType } f
 import * as corpusProcessingService from '../services/corpusProcessingService';
 import { log } from '../services/loggingService';
 import * as dbService from '../services/dbService';
+import { APP_CONFIG } from '../config/app_config';
 
 export const DataContext = createContext<DataContextType>({
     posts: [],
@@ -25,17 +26,7 @@ interface DataProviderProps {
     children: ReactNode;
 }
 
-const PRELOADED_FILES: { path: string, key: string }[] = [
-    { path: '/src/content_corpus/posts.csv', key: 'posts.csv' },
-    { path: '/src/content_corpus/subscribers/email_list.ericduell.csv', key: 'subscribers/email_list.ericduell.csv' },
-    { path: '/src/content_corpus/posts/delivers/191238962.delivers.csv', key: 'posts/delivers/191238962.delivers.csv' },
-    { path: '/src/content_corpus/posts/opens/191238962.opens.csv', key: 'posts/opens/191238962.opens.csv' },
-    { path: '/src/content_corpus/posts/191238962.building-in-public-the-creator-cockpit.html', key: 'posts/191238962.building-in-public-the-creator-cockpit.html' },
-    { path: '/src/content_corpus/posts/191285273.a-new-way-to-write-hooks.html', key: 'posts/191285273.a-new-way-to-write-hooks.html' },
-];
-
-
-export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
+export const DataProvider = ({ children }: DataProviderProps) => {
     const [posts, setPosts] = useState<Post[]>([]);
     const [deliveryRecords, setDeliveryRecords] = useState<DeliveryRecord[]>([]);
     const [openRecords, setOpenRecords] = useState<OpenRecord[]>([]);
@@ -46,10 +37,10 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     const loadCorpus = useCallback(async () => {
         setIsLoadingCorpus(true);
         setIsCorpusReady(false);
+        let corpusLoadedSuccessfully = false;
+
         try {
-            // 1. Try to load from IndexedDB
             const dbPosts = await dbService.getAll<Post>('posts');
-            
             if (dbPosts && dbPosts.length > 0) {
                 log.info('DataContext: Loading corpus from IndexedDB.');
                 const [dbSubscribers, dbOpens, dbDeliveries] = await Promise.all([
@@ -57,74 +48,95 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
                     dbService.getAll<OpenRecord>('opens'),
                     dbService.getAll<DeliveryRecord>('deliveries'),
                 ]);
-
                 setPosts(dbPosts);
                 setSubscriberRecords(dbSubscribers);
                 setOpenRecords(dbOpens);
                 setDeliveryRecords(dbDeliveries);
-                
-                log.info('DataContext: Pre-loaded corpus from IndexedDB processed successfully.');
-
+                corpusLoadedSuccessfully = true;
             } else {
-                log.info('DataContext: IndexedDB is empty. Falling back to fetch pre-loaded files.');
-                let newFileContents = new Map<string, string>();
-                
-                // --- Attempt 1: Load from ZIP in /src/corpus_stage/ ---
-                const zipResponse = await fetch('/src/corpus_stage/corpus.zip');
-                if (zipResponse.ok) {
-                    log.info('DataContext: Found pre-loaded zip in /src/corpus_stage/. Processing...');
-                    const arrayBuffer = await zipResponse.arrayBuffer();
-                    const zip = await JSZip.loadAsync(arrayBuffer);
-                    const filePaths = Object.keys(zip.files).filter(name => !zip.files[name].dir);
-                    
-                    for (const path of filePaths) {
-                        const fileData = zip.file(path);
-                        if (fileData) {
-                            try {
-                                const content = await fileData.async('text');
-                                newFileContents.set(path, content);
-                            } catch (err) {
-                                log.error(`Could not read file '${path}' as text from zip, skipping.`, err);
+                log.info('DataContext: IndexedDB is empty. Loading from preloaded assets.');
+                const assetsToLoad = APP_CONFIG.PRELOADED_ASSETS.filter(a => a.loader === 'DataContext' && a.loadOnStartup);
+                const fileContents = new Map<string, string>();
+                let zipLoaded = false;
+
+                const zipAsset = assetsToLoad.find(a => a.type === 'zip');
+                if (zipAsset) {
+                    try {
+                        const response = await fetch(zipAsset.path);
+                        if (response.ok && response.headers.get('Content-Type')?.includes('application/zip')) {
+                            log.info(`DataContext: Loading corpus from zip file: ${zipAsset.path}`);
+                            const arrayBuffer = await response.arrayBuffer();
+                            const zip = await JSZip.loadAsync(arrayBuffer);
+                            const filePaths = Object.keys(zip.files).filter(name => !zip.files[name].dir);
+                            for (const path of filePaths) {
+                                const fileData = zip.file(path);
+                                if (fileData) {
+                                    const content = await fileData.async('text');
+                                    fileContents.set(path, content);
+                                }
                             }
+                            zipLoaded = true;
+                        } else {
+                            if (zipAsset.required) {
+                                throw new Error(`Required zip file not found or is not a valid zip file: ${zipAsset.path}`);
+                            }
+                            log.info(`DataContext: Optional zip file not found at ${zipAsset.path}, skipping.`);
                         }
-                    }
-                } else {
-                    log.info('DataContext: Pre-loaded zip not found at /src/corpus_stage/corpus.zip. Attempting fallback to individual files.');
-                    
-                    // --- Attempt 2: Fallback to individual files ---
-                    for (const file of PRELOADED_FILES) {
-                        const response = await fetch(file.path);
-                        if (!response.ok) throw new Error(`Failed to fetch preloaded file: ${file.path}`);
-                        const content = await response.text();
-                        newFileContents.set(file.key, content);
+                    } catch (error) {
+                        if (zipAsset.required) throw error;
+                        log.error(`DataContext: Failed to process zip file: ${zipAsset.path}`, error);
                     }
                 }
 
-                const processedData = corpusProcessingService.processCorpusData(newFileContents);
-                if(processedData.error) throw new Error(processedData.error);
-                
-                setPosts(processedData.posts);
-                setDeliveryRecords(processedData.deliveryRecords);
-                setOpenRecords(processedData.openRecords);
-                setSubscriberRecords(processedData.subscriberRecords);
-                
-                log.info('DataContext: Saving fetched corpus to IndexedDB for next session.');
-                const fileContentsForDb = Array.from(newFileContents.entries()).map(([path, content]) => ({ path, content }));
-                await Promise.all([
-                    dbService.bulkPut('posts', processedData.posts),
-                    dbService.bulkPut('subscribers', processedData.subscriberRecords),
-                    dbService.bulkPut('opens', processedData.openRecords),
-                    dbService.bulkPut('deliveries', processedData.deliveryRecords),
-                    dbService.bulkPut('corpus_files', fileContentsForDb)
-                ]);
-                log.info('DataContext: Pre-loaded corpus from files processed and saved to DB successfully.');
+                if (!zipLoaded) {
+                    const otherAssets = assetsToLoad.filter(a => a.type !== 'zip');
+                    for (const asset of otherAssets) {
+                        try {
+                            const response = await fetch(asset.path);
+                            if (response.ok) {
+                                const content = await response.text();
+                                fileContents.set(asset.key, content);
+                            } else if (asset.required) {
+                                throw new Error(`Required asset not found at: ${asset.path}`);
+                            }
+                        } catch (error) {
+                            if (asset.required) throw error;
+                            log.info(`DataContext: Optional asset not found or failed to load: ${asset.path}`);
+                        }
+                    }
+                }
+
+                if (fileContents.size > 0) {
+                    const processedData = corpusProcessingService.processCorpusData(fileContents);
+                    if (processedData.error) throw new Error(processedData.error);
+                    
+                    setPosts(processedData.posts);
+                    setDeliveryRecords(processedData.deliveryRecords);
+                    setOpenRecords(processedData.openRecords);
+                    setSubscriberRecords(processedData.subscriberRecords);
+                    
+                    await Promise.all([
+                        dbService.bulkPut('posts', processedData.posts),
+                        dbService.bulkPut('subscribers', processedData.subscriberRecords),
+                        dbService.bulkPut('opens', processedData.openRecords),
+                        dbService.bulkPut('deliveries', processedData.deliveryRecords),
+                    ]);
+                    corpusLoadedSuccessfully = true;
+                }
+            }
+
+            if (corpusLoadedSuccessfully) {
+                setIsCorpusReady(true);
+                log.info('DataContext: Corpus loaded successfully.');
+            } else {
+                log.info('DataContext: No corpus data loaded (this may be expected).');
+                setIsCorpusReady(true);
             }
 
         } catch (error) {
             log.error("Could not pre-load development corpus from any source:", error);
         } finally {
             setIsLoadingCorpus(false);
-            setIsCorpusReady(true);
         }
     }, []);
 
@@ -147,8 +159,6 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
                 dbService.clearStore('opens'),
                 dbService.clearStore('deliveries'),
                 dbService.clearStore('corpus_files'),
-                // FIX: Context documents are part of the app's static assets and should not be cleared when the user's corpus data is reset.
-                // dbService.clearStore('context_documents'),
             ]);
         } catch(e) {
             log.error('DataContext: Failed to clear IndexedDB stores on reset.', e);
@@ -170,4 +180,4 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
             {children}
         </DataContext.Provider>
     );
-};
+}

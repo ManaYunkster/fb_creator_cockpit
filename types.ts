@@ -22,6 +22,15 @@ export enum Tool {
   DATABASE_RESTORER = 'DATABASE_RESTORER',
 }
 
+export interface PreloadedAsset {
+    key: string;
+    path: string;
+    type: 'zip' | 'markdown' | 'csv' | 'html';
+    loader: 'DataContext' | 'ContentContext';
+    loadOnStartup: boolean;
+    required: boolean;
+}
+
 export interface ContextDocument {
   id: string;
   content: string;

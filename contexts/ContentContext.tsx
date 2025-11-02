@@ -4,7 +4,7 @@
 
 import React, { createContext, useState, useEffect, ReactNode, useMemo, useContext, useRef, useCallback } from 'react';
 import { Type } from '@google/genai';
-import { ContextDocument, ContentContextType, GeminiFile } from '../types';
+import { ContextDocument, ContentContextType, GeminiFile, PreloadedAsset } from '../types';
 import { AI_PROMPTS, initPrompts } from '../services/promptService';
 import { log } from '../services/loggingService';
 import * as geminiFileService from '../services/geminiFileService';
@@ -22,57 +22,50 @@ export const ContentContext = createContext<ContentContextType>({
     removeContextDocument: async () => {},
 });
 
-const CONTEXT_DOCUMENT_PATHS = [
-    '/src/context_documents/__cc_content_global__brand-brief.md',
-    '/src/context_documents/__cc_content_global__author-bio.md',
-    '/src/context_documents/__cc_content_global__author-origin-story.md',
-    '/src/context_documents/__cc_instrux_spa__instructions.md',
-    '/src/context_documents/__cc_reference_spa__writing-hooks.md',
-];
-
-export const ContentProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+export const ContentProvider = ({ children }: { children: ReactNode }) => {
     const [contextDocuments, setContextDocuments] = useState<ContextDocument[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isContextReady, setIsContextReady] = useState(false);
     const { contextFiles, status: geminiStatus } = useContext(GeminiCorpusContext);
-
-    // Store the raw loaded docs in a ref to have a persistent, unfiltered list.
     const rawDocsRef = useRef<ContextDocument[]>([]);
 
     const loadContext = useCallback(async () => {
         log.info('ContentContext: Starting document load process...');
         setIsLoading(true);
         setIsContextReady(false);
-        
+        let contextLoadedSuccessfully = false;
+
         try {
-            // FIX: Ensure prompts are loaded before attempting to use them for classification.
             await initPrompts();
             
-            // 1. Try to load from cache
             const cachedDocs = await dbService.getAll<ContextDocument>('context_documents');
             if (cachedDocs && cachedDocs.length > 0) {
                 log.info('ContentContext: Loading context documents from IndexedDB cache.');
                 rawDocsRef.current = cachedDocs;
                 setContextDocuments(cachedDocs);
+                contextLoadedSuccessfully = true;
             } else {
                 log.info('ContentContext: No cached context documents found. Fetching from network and classifying.');
                 
+                const assetsToLoad = APP_CONFIG.PRELOADED_ASSETS.filter(a => a.loader === 'ContentContext' && a.loadOnStartup);
                 const modelConfigString = window.localStorage.getItem('modelConfig');
                 const modelConfig = modelConfigString ? { ...APP_CONFIG.DEFAULT_MODEL_CONFIG, ...JSON.parse(modelConfigString) } : APP_CONFIG.DEFAULT_MODEL_CONFIG;
-                const safetySettings = modelConfig.safetySettings;
-                // FIX: Changed from getSystemInstruction() to direct property access.
                 const classificationSystemInstruction = AI_PROMPTS.CONTEXT_CLASSIFICATION.SYSTEM_INSTRUCTION;
 
-                const classificationPromises = CONTEXT_DOCUMENT_PATHS.map(async (path) => {
-                    const id = path.split('/').pop() || 'unknown-file';
+                const classificationPromises = assetsToLoad.map(async (asset: PreloadedAsset) => {
+                    const id = asset.path.split('/').pop() || asset.key;
                     const profile = getProfileFromId(id);
-                    
-                    log.info(`ContentContext: Fetching and classifying document "${id}" with profile "${profile}"`);
-
                     let content = '';
+
                     try {
-                        const response = await fetch(path);
-                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                        const response = await fetch(asset.path);
+                        if (!response.ok) {
+                            if (asset.required) {
+                                throw new Error(`Required asset not found at: ${asset.path}`);
+                            }
+                            log.info(`ContentContext: Optional asset not found, skipping: ${asset.path}`);
+                            return null;
+                        }
                         content = await response.text();
                         
                         const originalName = parseInternalFileName(id)?.originalName || id;
@@ -92,49 +85,57 @@ export const ContentProvider: React.FC<{ children: ReactNode }> = ({ children })
                                   summary: { type: Type.STRING },
                                 },
                               },
-                              safetySettings,
+                              safetySettings: modelConfig.safetySettings,
                            },
                         });
                         
+                        if (!classificationResponse?.text) {
+                            throw new Error(`AI classification for ${id} returned an empty response.`);
+                        }
                         const jsonStr = classificationResponse.text.trim();
                         const result = JSON.parse(jsonStr);
 
                         return { id, content, classification: result.classification || 'General', summary: result.summary || 'No summary available.', profile };
                     } catch (classificationError) {
                          log.error(`Failed to fetch or classify document: ${id}`, classificationError);
-                         return { id, content: content || `Failed to load content for ${id}.`, classification: 'Unclassified', summary: 'AI classification failed for this document.', profile };
+                         if (asset.required) throw classificationError;
+                         return null;
                     }
                 });
                 
-                const classifiedDocs = await Promise.all(classificationPromises);
-                
-                await dbService.bulkPut('context_documents', classifiedDocs);
-                log.info('ContentContext: Saved classified documents to IndexedDB.');
+                const results = await Promise.all(classificationPromises);
+                const classifiedDocs = results.filter((doc): doc is ContextDocument => doc !== null);
 
-                rawDocsRef.current = classifiedDocs;
-                setContextDocuments(classifiedDocs);
+                if (classifiedDocs.length > 0) {
+                    await dbService.bulkPut('context_documents', classifiedDocs);
+                    log.info('ContentContext: Saved classified documents to IndexedDB.');
+                    rawDocsRef.current = classifiedDocs;
+                    setContextDocuments(classifiedDocs);
+                }
+                contextLoadedSuccessfully = true;
+            }
+
+            if (contextLoadedSuccessfully) {
+                setIsContextReady(true);
+                log.info('ContentContext: Context loaded successfully.');
             }
         } catch (error) {
             log.error("Failed to load or process context documents:", error);
         } finally {
             setIsLoading(false);
-            setIsContextReady(true);
         }
     }, []);
     
     const addContextDocument = useCallback(async (file: File, internalName: string) => {
         try {
-            // FIX: Ensure prompts are loaded before attempting to use them for classification.
             await initPrompts();
             
             const content = await file.text();
             const profile = getProfileFromId(internalName);
-
             log.info(`ContentContext: Classifying and adding new document "${internalName}"`);
             
             const modelConfigString = window.localStorage.getItem('modelConfig');
             const modelConfig = modelConfigString ? { ...APP_CONFIG.DEFAULT_MODEL_CONFIG, ...JSON.parse(modelConfigString) } : APP_CONFIG.DEFAULT_MODEL_CONFIG;
-            // FIX: Changed from getSystemInstruction() to direct property access.
             const classificationSystemInstruction = AI_PROMPTS.CONTEXT_CLASSIFICATION.SYSTEM_INSTRUCTION;
 
             const classificationResponse = await geminiFileService.generateContent({
@@ -154,6 +155,9 @@ export const ContentProvider: React.FC<{ children: ReactNode }> = ({ children })
                },
             });
             
+            if (!classificationResponse?.text) {
+                throw new Error(`AI classification for ${internalName} returned an empty response.`);
+            }
             const jsonStr = classificationResponse.text.trim();
             const result = JSON.parse(jsonStr);
 
@@ -183,17 +187,14 @@ export const ContentProvider: React.FC<{ children: ReactNode }> = ({ children })
         }
     }, []);
 
-    // Effect 1: Load and classify local documents ONCE on mount.
     useEffect(() => {
         loadContext();
     }, [loadContext]);
 
-    // Effect 2: React to the Gemini sync status to filter the displayed documents.
     useEffect(() => {
         if (geminiStatus === 'READY') {
             log.info('ContentContext: Gemini corpus is READY. Filtering documents against synced files.');
-            // FIX: Explicitly typed 'f' as GeminiFile to resolve type inference issues.
-            const syncedFileDisplayNames = new Set(Array.from(contextFiles.values()).map((f: GeminiFile) => f.displayName));
+            const syncedFileDisplayNames = new Set([...contextFiles.values()].map(f => f.displayName));
             const finalDocs = rawDocsRef.current.filter(doc => syncedFileDisplayNames.has(doc.id));
             
             if (rawDocsRef.current.length !== finalDocs.length) {
@@ -204,7 +205,6 @@ export const ContentProvider: React.FC<{ children: ReactNode }> = ({ children })
         } else if (geminiStatus === 'ERROR') {
             setContextDocuments([]);
         }
-        // When status is 'EMPTY' or 'SYNCING', we do nothing here, preserving the initial full list.
     }, [geminiStatus, contextFiles]);
 
     const value = useMemo(() => ({
@@ -221,4 +221,4 @@ export const ContentProvider: React.FC<{ children: ReactNode }> = ({ children })
             {children}
         </ContentContext.Provider>
     );
-};
+}

@@ -258,6 +258,13 @@ export const uploadFile = async (
   options: UploadOptions = {}
 ): Promise<GeminiFile> => {
   log.info('geminiService.uploadFile', { file, options });
+
+  if (!file || file.size === 0) {
+    const errorMessage = `Skipping upload of empty file: ${options.displayName || file.name}`;
+    log.error(errorMessage);
+    throw new Error(errorMessage); 
+  }
+
   try {
     let fileToUpload: File;
     const finalDisplayName = options.displayName || file.name;
@@ -318,6 +325,13 @@ export const uploadFileToApiOnly = async (
   options: { displayName?: string } = {}
 ): Promise<GeminiFile> => {
   log.info('geminiService.uploadFileToApiOnly', { file, options });
+
+  if (!file || file.size === 0) {
+    const errorMessage = `Skipping API-only upload of empty file: ${options.displayName || file.name}`;
+    log.error(errorMessage);
+    throw new Error(errorMessage);
+  }
+
   try {
     let fileToUpload: File;
     const finalDisplayName = options.displayName || file.name;

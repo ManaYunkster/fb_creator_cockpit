@@ -22,7 +22,7 @@ export const TestModeContext = createContext<TestModeContextType>({
     setAllTestsOff: () => {},
 });
 
-export const TestModeProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+export const TestModeProvider = ({ children }: { children: ReactNode }) => {
     const [isTestMode, setIsTestMode] = useState(false);
     const [activeTests, setActiveTests] = useState<Set<TestId>>(new Set(ALL_TEST_IDS));
 

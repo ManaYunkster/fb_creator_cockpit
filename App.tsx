@@ -6,9 +6,10 @@ import ToolPanel from './components/ToolPanel';
 import Logo from './components/icons/Logo';
 import ContentCorpusUploader from './components/ContentCorpusUploader';
 import { DataProvider, DataContext } from './contexts/DataContext';
-import { SettingsProvider } from './contexts/SettingsContext';
+import { SettingsProvider, SettingsContext } from './contexts/SettingsContext';
 import { ContentProvider, ContentContext } from './contexts/ContentContext';
 import { GeminiCorpusProvider, GeminiCorpusContext } from './contexts/GeminiCorpusContext';
+import { TestModeProvider, TestModeContext } from './contexts/TestModeContext';
 import { useCorpusProcessor } from './hooks/useCorpusProcessor';
 import { APP_CONFIG } from './config/app_config';
 import GlobalSettingsPanel from './components/GlobalSettingsPanel';
@@ -17,11 +18,46 @@ import { TOOL_CONFIG } from './config/tool_config';
 import LoggingLevelSelector from './components/LoggingLevelSelector';
 import MagnifyingGlassIcon from './components/icons/MagnifyingGlassIcon';
 import PencilIcon from './components/icons/PencilIcon';
-import { TestModeContext } from './contexts/TestModeContext';
-import ToggleSwitch from './components/ToggleSwitch';
 import { log } from './services/loggingService';
 import * as dbService from './services/dbService';
 import { initPrompts } from './services/promptService';
+
+const AppInitializer: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const [isInitialized, setIsInitialized] = useState(false);
+
+    useEffect(() => {
+        const initializeApp = async () => {
+            try {
+                log.info('AppInitializer: Starting application initialization...');
+                
+                // 1. Initialize external prompts
+                await initPrompts();
+                log.info('AppInitializer: Prompts initialized.');
+
+                // 2. Sanitize the database to remove any orphaned file content records
+                await dbService.sanitizeFileContentStore();
+                log.info('AppInitializer: Database sanitized.');
+
+                setIsInitialized(true);
+                log.info('AppInitializer: Initialization complete. Rendering application.');
+
+            } catch (error) {
+                log.error('Fatal error during application initialization:', error);
+                // You could render a global error state here
+            }
+        };
+
+        initializeApp();
+    }, []);
+
+    if (!isInitialized) {
+        // You can render a global loading spinner here if desired
+        return null; 
+    }
+
+    return <>{children}</>;
+};
+
 
 const AppContent: React.FC = () => {
   const [activeTool, setActiveTool] = useState<Tool | null>(null);
@@ -33,7 +69,7 @@ const AppContent: React.FC = () => {
   const { contextDocuments } = contentContext;
   const { status: corpusStatus } = geminiCorpusContext;
   
-  const { isTestMode, toggleTestMode } = useContext(TestModeContext);
+  const { isTestMode } = useContext(TestModeContext);
   
   const [isDraggingOverCorpus, setIsDraggingOverCorpus] = useState(false);
   const [isDraggingOverRestore, setIsDraggingOverRestore] = useState(false);
@@ -48,11 +84,6 @@ const AppContent: React.FC = () => {
   const { processZipFile, isLoading: isCorpusLoading } = useCorpusProcessor({
     onProcessSuccess: () => setActiveTool(Tool.PostInsights)
   });
-
-  useEffect(() => {
-    // Initialize and load all external prompt files on application startup.
-    initPrompts();
-  }, []);
   
   const restoreFromFile = useCallback(async (file: File) => {
       setIsRestoreLoading(true);
@@ -63,10 +94,6 @@ const AppContent: React.FC = () => {
           if (!file || !file.type.includes('zip')) {
               throw new Error('Please provide a valid .zip backup file.');
           }
-          
-          // The sync will happen automatically via the useEffect orchestrator in GeminiCorpusContext.
-          // By resetting the data and then reloading it, the contexts will become "ready" again,
-          // which fulfills the conditions for the orchestrator to run a fresh sync.
           
           const zip = await JSZip.loadAsync(file);
           const backupFile = zip.file('database_backup.json');
@@ -83,7 +110,6 @@ const AppContent: React.FC = () => {
           await dbService.importDB(jsonData);
           
           setRestoreProgress('Refreshing application state...');
-          // These reloads will trigger the main orchestrator in GeminiCorpusContext
           await dataContext.loadCorpus();
           await contentContext.loadContext();
           
@@ -96,7 +122,6 @@ const AppContent: React.FC = () => {
       } finally {
           setTimeout(() => {
               setIsRestoreLoading(false);
-              // The main status message will now reflect the sync progress.
               setRestoreProgress('');
               setTimeout(() => setRestoreError(null), 2000);
           }, 3000);
@@ -304,12 +329,6 @@ const AppContent: React.FC = () => {
       <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-3">
         {!activeTool && (
           <>
-            {/* FIX: Hide the Test Mode toggle switch from the main UI. */}
-            {/* <ToggleSwitch
-                isOn={isTestMode}
-                handleToggle={toggleTestMode}
-                label="Test Mode"
-            /> */}
             <button
                 onClick={() => setIsPromptManagerOpen(true)}
                 title="Prompt Inspector"
@@ -341,15 +360,19 @@ const AppContent: React.FC = () => {
 };
 
 const App: React.FC = () => (
-  <DataProvider>
-    <SettingsProvider>
-      <ContentProvider>
-        <GeminiCorpusProvider>
-            <AppContent />
-        </GeminiCorpusProvider>
-      </ContentProvider>
-    </SettingsProvider>
-  </DataProvider>
+  <TestModeProvider>
+    <AppInitializer>
+        <DataProvider>
+            <SettingsProvider>
+                <ContentProvider>
+                    <GeminiCorpusProvider>
+                        <AppContent />
+                    </GeminiCorpusProvider>
+                </ContentProvider>
+            </SettingsProvider>
+        </DataProvider>
+    </AppInitializer>
+  </TestModeProvider>
 );
 
 export default App;

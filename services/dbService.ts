@@ -170,6 +170,59 @@ export const clearStore = async (storeName: string): Promise<void> => {
     });
 };
 
+/**
+ * Sanitizes the file stores by removing any file records with empty or missing content blobs.
+ * This is a preventative measure to clean up any orphaned data from previous sessions or errors.
+ */
+export const sanitizeFileContentStore = async (): Promise<void> => {
+    log.info('dbService: Starting file content sanitization...');
+    const db = await initDB();
+
+    return new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction(['file_contents', 'files'], 'readwrite');
+        const fileContentsStore = transaction.objectStore('file_contents');
+        const filesStore = transaction.objectStore('files');
+        let deletedCount = 0;
+
+        transaction.oncomplete = () => {
+            if (deletedCount > 0) {
+                log.info(`dbService: File content sanitization complete. Removed ${deletedCount} orphaned record(s).`);
+            }
+            resolve();
+        };
+        transaction.onerror = () => {
+            log.error('File content sanitization transaction failed:', transaction.error);
+            reject(transaction.error);
+        };
+
+        const cursorRequest = fileContentsStore.openCursor();
+        cursorRequest.onerror = () => reject('Failed to open cursor on file_contents store.');
+        
+        cursorRequest.onsuccess = (event) => {
+            const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+            if (cursor) {
+                const record = cursor.value;
+                // Check for null, undefined, or a Blob with size 0.
+                if (!record.content || (record.content instanceof Blob && record.content.size === 0)) {
+                    const internalName = cursor.primaryKey as string;
+                    log.info(`Sanitizing: Found empty content blob for "${internalName}". Deleting record.`);
+                    
+                    // Delete the content record itself
+                    cursor.delete(); 
+                    
+                    // Also delete the corresponding metadata record in the 'files' store
+                    // This is crucial to prevent orphaned metadata.
+                    filesStore.delete(`local/${internalName}`); // Preliminary local record
+                    
+                    deletedCount++;
+                }
+                cursor.continue();
+            }
+        };
+    });
+};
+
+
 // --- Blob Serialization/Deserialization Helpers ---
 
 const blobToBase64 = (blob: Blob): Promise<string> => {

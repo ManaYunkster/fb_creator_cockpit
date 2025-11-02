@@ -26,7 +26,7 @@ interface SettingsProviderProps {
     children: ReactNode;
 }
 
-export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) => {
+export const SettingsProvider = ({ children }: SettingsProviderProps) => {
     const [logLevel, setLogLevelState] = useState<LogLevelString>(() => {
         try {
             const item = window.localStorage.getItem('logLevel');
@@ -121,4 +121,4 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
             {children}
         </SettingsContext.Provider>
     );
-};
+}
