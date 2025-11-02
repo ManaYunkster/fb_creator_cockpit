@@ -164,7 +164,7 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
     return (
         <geminiCorpusContext.Provider value={value}>
             {children}
-                </geminiCorpusContext.Provider>
+        </geminiCorpusContext.Provider>
     );
 };
 

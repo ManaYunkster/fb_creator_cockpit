@@ -26,7 +26,7 @@ interface DataProviderProps {
     children: ReactNode;
 }
 
-const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
+export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     const [posts, setPosts] = useState<Post[]>([]);
     const [deliveryRecords, setDeliveryRecords] = useState<DeliveryRecord[]>([]);
     const [openRecords, setOpenRecords] = useState<OpenRecord[]>([]);

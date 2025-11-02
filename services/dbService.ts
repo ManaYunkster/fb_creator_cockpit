@@ -197,7 +197,7 @@ export const purgeDatabase = async (): Promise<void> => {
         };
         
         deleteRequest.onblocked = () => {
-            log.warn('Database purge was blocked. This usually means there are open connections that were not closed.');
+            log.info('Database purge was blocked. This usually means there are open connections that were not closed.');
             reject('Database purge was blocked. Please reload the application and try again.');
         };
     });
