@@ -6,7 +6,7 @@ import { setLogLevel as configureLogger } from '../services/loggingService';
 
 interface SettingsContextType {
     logLevel: LogLevelString;
-    setLogLevel: (level: LogLevelString) => void;
+    handleSetLogLevel: (level: LogLevelString) => void;
     modelConfig: ModelConfig;
     setModelConfig: React.Dispatch<React.SetStateAction<ModelConfig>>;
     availableModels: AvailableModel[];
@@ -15,7 +15,7 @@ interface SettingsContextType {
 
 export const SettingsContext = createContext<SettingsContextType>({
     logLevel: 'INFO',
-    setLogLevel: () => {},
+    handleSetLogLevel: () => {},
     modelConfig: APP_CONFIG.DEFAULT_MODEL_CONFIG,
     setModelConfig: () => {},
     availableModels: [],
@@ -71,7 +71,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
         }
     }, [modelConfig]);
 
-    const setLogLevel = (level: LogLevelString) => {
+    const handleSetLogLevel = (level: LogLevelString) => {
         setLogLevelState(level);
     };
 
@@ -109,12 +109,12 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     
     const value = useMemo(() => ({
         logLevel,
-        setLogLevel,
+        handleSetLogLevel,
         modelConfig,
         setModelConfig,
         availableModels,
         isLoadingModels,
-    }), [logLevel, modelConfig, availableModels, isLoadingModels]);
+    }), [logLevel, handleSetLogLevel, modelConfig, setModelConfig, availableModels, isLoadingModels]);
 
     return (
         <SettingsContext.Provider value={value}>
