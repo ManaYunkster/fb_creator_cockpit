@@ -22,7 +22,11 @@ export const ContentContext = createContext<ContentContextType>({
     removeContextDocument: async () => {},
 });
 
-export const ContentProvider = ({ children }: { children: ReactNode }) => {
+interface ContentProviderProps {
+    children: ReactNode;
+}
+
+export const ContentProvider: React.FC<ContentProviderProps> = ({ children }) => {
     const [contextDocuments, setContextDocuments] = useState<ContextDocument[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isContextReady, setIsContextReady] = useState(false);
@@ -67,13 +71,18 @@ export const ContentProvider = ({ children }: { children: ReactNode }) => {
                             return null;
                         }
                         content = await response.text();
+
+                        if (!content.trim()) {
+                            log.info(`ContentContext: Asset content for ${asset.path} is empty, skipping.`);
+                            return null;
+                        }
                         
                         const originalName = parseInternalFileName(id)?.originalName || id;
                         const file = new File([content], originalName, { type: 'text/markdown' });
                         await geminiFileService.registerLocalFile(id, originalName, file);
 
                         const classificationResponse = await geminiFileService.generateContent({
-                          model: 'gemini-2.5-flash',
+                          model: modelConfig.model,
                           contents: content,
                           config: {
                              systemInstruction: classificationSystemInstruction,
@@ -139,7 +148,7 @@ export const ContentProvider = ({ children }: { children: ReactNode }) => {
             const classificationSystemInstruction = AI_PROMPTS.CONTEXT_CLASSIFICATION.SYSTEM_INSTRUCTION;
 
             const classificationResponse = await geminiFileService.generateContent({
-              model: 'gemini-2.5-flash',
+              model: modelConfig.model,
               contents: content,
               config: {
                  systemInstruction: classificationSystemInstruction,
@@ -221,4 +230,6 @@ export const ContentProvider = ({ children }: { children: ReactNode }) => {
             {children}
         </ContentContext.Provider>
     );
-}
+};
+
+export default ContentProvider;

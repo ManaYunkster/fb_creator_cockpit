@@ -39,14 +39,28 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({ isOpen, onClose, onFi
         setIsLoading(true);
         setError(null);
         try {
-            const apiFiles = await geminiFileService.listFilesFromApi();
-            
+            const apiFiles = await geminiFileService.listGeminiFiles();
             const allKnownLocalFiles = await dbService.getAll<GeminiFile>('files');
-            const localFileMap = new Map(allKnownLocalFiles.map(f => [f.name, f]));
-            const processedFiles = await Promise.all(
-                apiFiles.map(file => geminiFileService.processFileMetadata(file, localFileMap.get(file.name)))
-            );
             
+            const combinedFilesMap = new Map<string, GeminiFile>();
+    
+            // Process and add all local files first
+            for (const localFile of allKnownLocalFiles) {
+                if (localFile.context !== 'corpus') { // Exclude corpus files from the picker
+                    const processedLocal = await geminiFileService.processFileMetadata(localFile);
+                    combinedFilesMap.set(processedLocal.name, processedLocal);
+                }
+            }
+    
+            // Process and add or update with API files
+            for (const apiFile of apiFiles) {
+                if (apiFile.context !== 'corpus') { // Exclude corpus files
+                    const processedApi = await geminiFileService.processFileMetadata(apiFile, combinedFilesMap.get(apiFile.name));
+                    combinedFilesMap.set(processedApi.name, processedApi);
+                }
+            }
+            
+            const processedFiles = Array.from(combinedFilesMap.values());
             setAllFiles(processedFiles.sort((a, b) => new Date(b.createTime).getTime() - new Date(a.createTime).getTime()));
         } catch (err: any) {
             setError(err.message || 'Failed to fetch files.');

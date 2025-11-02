@@ -171,8 +171,41 @@ export const clearStore = async (storeName: string): Promise<void> => {
 };
 
 /**
- * Sanitizes the file stores by removing any file records with empty or missing content blobs.
- * This is a preventative measure to clean up any orphaned data from previous sessions or errors.
+ * Completely deletes the entire IndexedDB database.
+ */
+export const purgeDatabase = async (): Promise<void> => {
+    // First, ensure any existing connection is closed.
+    if (dbPromise) {
+        const db = await dbPromise;
+        db.close();
+        dbPromise = null;
+        log.info('Closed existing DB connection before purging.');
+    }
+
+    return new Promise((resolve, reject) => {
+        log.info(`Requesting deletion of database: ${DB_NAME}`);
+        const deleteRequest = indexedDB.deleteDatabase(DB_NAME);
+
+        deleteRequest.onsuccess = () => {
+            log.info('Database purged successfully.');
+            resolve();
+        };
+
+        deleteRequest.onerror = () => {
+            log.error('Error purging database:', deleteRequest.error);
+            reject(`Error purging database: ${deleteRequest.error?.message}`);
+        };
+        
+        deleteRequest.onblocked = () => {
+            log.warn('Database purge was blocked. This usually means there are open connections that were not closed.');
+            reject('Database purge was blocked. Please reload the application and try again.');
+        };
+    });
+};
+
+/**
+ * Sanitizes the file stores by removing any file records with empty/missing content 
+ * or an invalid mimeType. This prevents propagation of bad data from previous sessions.
  */
 export const sanitizeFileContentStore = async (): Promise<void> => {
     log.info('dbService: Starting file content sanitization...');
@@ -186,7 +219,7 @@ export const sanitizeFileContentStore = async (): Promise<void> => {
 
         transaction.oncomplete = () => {
             if (deletedCount > 0) {
-                log.info(`dbService: File content sanitization complete. Removed ${deletedCount} orphaned record(s).`);
+                log.info(`dbService: File content sanitization complete. Removed ${deletedCount} invalid record(s).`);
             }
             resolve();
         };
@@ -202,17 +235,34 @@ export const sanitizeFileContentStore = async (): Promise<void> => {
             const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
             if (cursor) {
                 const record = cursor.value;
-                // Check for null, undefined, or a Blob with size 0.
+                const internalName = cursor.primaryKey as string;
+                let shouldDelete = false;
+                let reason = '';
+
+                // Condition 1: Check for null, undefined, or a Blob with size 0.
                 if (!record.content || (record.content instanceof Blob && record.content.size === 0)) {
-                    const internalName = cursor.primaryKey as string;
-                    log.info(`Sanitizing: Found empty content blob for "${internalName}". Deleting record.`);
+                    shouldDelete = true;
+                    reason = 'empty content blob';
+                }
+                // Condition 2: Check for invalid or missing mimeType.
+                else if (!record.mimeType || record.mimeType === 'application/octet-stream') {
+                    shouldDelete = true;
+                    reason = `invalid mimeType ('${record.mimeType}')`;
+                }
+
+                if (shouldDelete) {
+                    log.info(`Sanitizing: Deleting "${internalName}" due to: ${reason}.`);
                     
                     // Delete the content record itself
                     cursor.delete(); 
                     
-                    // Also delete the corresponding metadata record in the 'files' store
-                    // This is crucial to prevent orphaned metadata.
-                    filesStore.delete(`local/${internalName}`); // Preliminary local record
+                    // Also delete the corresponding metadata record in the 'files' store if it exists
+                    filesStore.delete(internalName).onsuccess = () => {
+                        log.debug(`- Also deleted corresponding 'files' metadata for ${internalName}`);
+                    };
+                    filesStore.delete(`local/${internalName}`).onsuccess = () => {
+                         log.debug(`- Also deleted corresponding 'local/files' metadata for ${internalName}`);
+                    };;
                     
                     deletedCount++;
                 }

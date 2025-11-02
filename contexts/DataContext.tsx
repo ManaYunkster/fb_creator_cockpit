@@ -1,4 +1,4 @@
-import React, { createContext, useState, ReactNode, useCallback, useEffect } from 'react';
+import React, { createContext, useState, ReactNode, useCallback, useEffect, useMemo } from 'react';
 import JSZip from 'jszip';
 import { Post, DeliveryRecord, OpenRecord, SubscriberRecord, DataContextType } from '../types';
 import * as corpusProcessingService from '../services/corpusProcessingService';
@@ -26,7 +26,7 @@ interface DataProviderProps {
     children: ReactNode;
 }
 
-export const DataProvider = ({ children }: DataProviderProps) => {
+const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     const [posts, setPosts] = useState<Post[]>([]);
     const [deliveryRecords, setDeliveryRecords] = useState<DeliveryRecord[]>([]);
     const [openRecords, setOpenRecords] = useState<OpenRecord[]>([]);
@@ -107,7 +107,7 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 }
 
                 if (fileContents.size > 0) {
-                    const processedData = corpusProcessingService.processCorpusData(fileContents);
+                    const processedData = await corpusProcessingService.processCorpusData(fileContents);
                     if (processedData.error) throw new Error(processedData.error);
                     
                     setPosts(processedData.posts);
@@ -159,25 +159,30 @@ export const DataProvider = ({ children }: DataProviderProps) => {
                 dbService.clearStore('opens'),
                 dbService.clearStore('deliveries'),
                 dbService.clearStore('corpus_files'),
+                dbService.clearStore('file_contents'),
             ]);
         } catch(e) {
             log.error('DataContext: Failed to clear IndexedDB stores on reset.', e);
         }
     }, []);
+    
+    const value = useMemo(() => ({
+        posts, setPosts,
+        deliveryRecords, setDeliveryRecords,
+        openRecords, setOpenRecords,
+        subscriberRecords, setSubscriberRecords,
+        resetData,
+        isLoadingCorpus,
+        isCorpusReady,
+        setIsCorpusReady,
+        loadCorpus
+    }), [posts, deliveryRecords, openRecords, subscriberRecords, resetData, isLoadingCorpus, isCorpusReady, loadCorpus]);
 
     return (
-        <DataContext.Provider value={{
-            posts, setPosts,
-            deliveryRecords, setDeliveryRecords,
-            openRecords, setOpenRecords,
-            subscriberRecords, setSubscriberRecords,
-            resetData,
-            isLoadingCorpus,
-            isCorpusReady,
-            setIsCorpusReady,
-            loadCorpus
-        }}>
+        <DataContext.Provider value={value}>
             {children}
         </DataContext.Provider>
     );
-}
+};
+
+export default DataProvider;

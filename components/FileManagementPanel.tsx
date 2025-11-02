@@ -61,16 +61,26 @@ const FileManagementPanel: React.FC = () => {
         setIsLoading(true);
         setError(null);
         try {
-            const apiFiles = await geminiFileService.listFilesFromApi();
+            const apiFiles = await geminiFileService.listGeminiFiles();
             const allKnownLocalFiles = await dbService.getAll<GeminiFile>('files');
-            const localFileMap = new Map(allKnownLocalFiles.map(f => [f.name, f]));
             
-            const processedFiles = await Promise.all(
-                apiFiles.map(file => geminiFileService.processFileMetadata(file, localFileMap.get(file.name)))
-            );
-            setFiles(processedFiles);
+            const combinedFilesMap = new Map<string, GeminiFile>();
+    
+            // Add all local files first
+            for (const localFile of allKnownLocalFiles) {
+                const processedLocal = await geminiFileService.processFileMetadata(localFile);
+                combinedFilesMap.set(processedLocal.name, processedLocal);
+            }
+    
+            // Add or update with API files
+            for (const apiFile of apiFiles) {
+                const processedApi = await geminiFileService.processFileMetadata(apiFile, combinedFilesMap.get(apiFile.name));
+                combinedFilesMap.set(processedApi.name, processedApi);
+            }
+            
+            setFiles(Array.from(combinedFilesMap.values()));
         } catch (err: any) {
-            setError(err.message || 'Failed to load files from the API.');
+            setError(err.message || 'Failed to load files.');
             setFiles([]);
         } finally {
             setIsLoading(false);
@@ -239,26 +249,38 @@ const FileManagementPanel: React.FC = () => {
     
     const handleConfirmDelete = async () => {
         log.info('FileManagementPanel: handleConfirmDelete for names:', filesToDelete);
-        
         setIsConfirmModalOpen(false);
         setError(null);
-
+    
         try {
-            const apiFileMap = new Map(files.map(f => [f.name, f]));
-
             const deletionPromises = filesToDelete.map(async (fileName) => {
-                await geminiFileService.deleteFileFromApiOnly(fileName);
-
-                const localRecord = await dbService.get<GeminiFile>('files', fileName);
-                if (localRecord) {
-                    const fileMetadata = apiFileMap.get(fileName);
-                    if (fileMetadata?.context && ['content', 'instrux', 'reference'].includes(fileMetadata.context)) {
-                        await removeContextDocument(fileMetadata.displayName);
-                    }
+                const isLocal = fileName.startsWith('local/');
+                const fileMetadata = files.find(f => f.name === fileName);
+    
+                if (isLocal) {
+                    // It's a local-only file, just delete it from the DB
                     await geminiFileService.deleteLocalFile(fileName);
+                } else {
+                    // It's an API-synced file
+                    try {
+                        await geminiFileService.deleteFileFromApiOnly(fileName);
+                    } catch (apiError: any) {
+                        // If the file is not found on the API, we can still proceed to delete it locally.
+                        if (!apiError.message.includes('404')) {
+                            throw apiError; // Re-throw if it's not a 'Not Found' error
+                        }
+                        log.info(`File ${fileName} not found on API, proceeding with local deletion.`);
+                    }
+                    // Always try to delete the local record as well, using the API name as the key
+                    await dbService.del('files', fileName);
+                }
+    
+                // If it was a context document, remove it from the context
+                if (fileMetadata?.context && ['content', 'instrux', 'reference'].includes(fileMetadata.context)) {
+                    await removeContextDocument(fileMetadata.cachedDisplayName || fileMetadata.displayName);
                 }
             });
-
+    
             await Promise.all(deletionPromises);
         } catch (err: any) {
             setError(err.message || 'An error occurred during deletion.');

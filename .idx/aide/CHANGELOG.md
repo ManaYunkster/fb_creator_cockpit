@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 1.5.0 (Build 20251102.1)
+
+*   **Feature:** Added a "Purge Database" button to the Prompt Inspector modal. This provides a developer utility to clear all application data from IndexedDB.
+*   **Fix:** Resolved an issue where the Prompt Inspector was not displaying prompt content. The panel now correctly initializes the `promptService` and dynamically loads the content for the selected prompt.
+
 All notable changes to this project will be documented in this file.
 
 ---
@@ -79,7 +84,7 @@ All notable changes to this project will be documented in this file.
 
 ### **Build 20250914.7** - 2025-09-14
 
--   **REFACTOR (Architecture):** Completed a major architectural overhaul to implement a "DB-first" file synchronization model. The application's local IndexedDB is now the single source of truth for all files. On startup, a new synchronization process reconciles this local state with the Gemini Files API, automatically uploading missing files and deleting orphaned ones to ensure the remote API is always a mirror of the local database.
+-   **REFACTOR (Architecture):** Completed a major architectural overhaul to implement a "DB-first" file synchronization model. The application's local IndexedDB is now the single source of truth for all files. On startup, a new synchronization process reconciles this local state with the Gemini Files API, a-utomaticsally uploading missing files and deleting orphaned ones to ensure the remote API is always a mirror of the local database.
 -   **FEAT (Database):** Added a new `file_contents` object store to IndexedDB to persist the raw `Blob` content of all files, enabling the new DB-first synchronization and upload process.
 -   **REFACTOR (Services & Components):** Refactored `geminiFileService`, `geminiCorpusService`, `FileManagementPanel`, `ContentContext`, and `useCorpusProcessor` to support the new DB-first architecture, ensuring all file operations are persisted locally before any remote API interaction.
 

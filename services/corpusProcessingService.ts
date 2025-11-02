@@ -1,5 +1,5 @@
 import Papa from 'papaparse';
-import { Post, DeliveryRecord, OpenRecord, SubscriberRecord } from '../types';
+import { Post, DeliveryRecord, OpenRecord, SubscriberRecord, FileContentRecord } from '../types';
 import { USER_CONFIG } from '../config/user_config';
 import { log } from './loggingService';
 
@@ -18,9 +18,9 @@ const calculateWordCountFromHtml = (htmlString: string): number => {
     return words.length;
 };
 
-export const processCorpusData = (
+export const processCorpusData = async (
     fileContents: Map<string, string>
-) => {
+): Promise<{ posts: Post[], deliveryRecords: DeliveryRecord[], openRecords: OpenRecord[], subscriberRecords: SubscriberRecord[], error: string | null }> => {
     log.info('corpusProcessingService: processCorpusData triggered', { fileCount: fileContents.size });
 
     const postsCsvPath = Array.from(fileContents.keys()).find(path => path.includes('posts.csv'));

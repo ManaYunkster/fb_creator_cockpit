@@ -10,7 +10,6 @@ import { log } from '../services/loggingService';
 import * as dbService from '../services/dbService';
 import { buildInternalFileName } from '../config/file_naming_config';
 import * as geminiFileService from '../services/geminiFileService';
-import { ContextDocument } from '../types';
 
 interface CorpusProcessorOptions {
   onProcessSuccess?: () => void;
@@ -23,7 +22,7 @@ export const useCorpusProcessor = (options: CorpusProcessorOptions = {}) => {
     const [isDragging, setIsDragging] = useState<boolean>(false);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
     const { setPosts, resetData, setDeliveryRecords, setOpenRecords, setSubscriberRecords, setIsCorpusReady } = useContext(DataContext);
-    const { refreshSyncedFiles } = useContext(GeminiCorpusContext);
+    const { syncCorpus } = useContext(GeminiCorpusContext);
     const { loadContext } = useContext(ContentContext);
 
     const resetState = useCallback(async () => {
@@ -69,7 +68,7 @@ export const useCorpusProcessor = (options: CorpusProcessorOptions = {}) => {
             setFilesList(Array.from(newFileContents.keys()));
 
             // Use the centralized service to process the file contents
-            const processedData = corpusProcessingService.processCorpusData(newFileContents);
+            const processedData = await corpusProcessingService.processCorpusData(newFileContents);
             
             if (processedData.error) {
                 throw new Error(processedData.error);
@@ -101,38 +100,15 @@ export const useCorpusProcessor = (options: CorpusProcessorOptions = {}) => {
                 { name: 'all_posts_metadata.csv', content: Papa.unparse(processedData.posts, csvOptions), type: 'text/csv', purpose: 'corpus-posts' },
             ];
             
-            const newCorpusAssetNames = new Set<string>();
             for (const asset of corpusAssetsToRegister) {
                 const internalName = buildInternalFileName(asset.name, asset.purpose);
-                newCorpusAssetNames.add(internalName);
                 const assetFile = new File([asset.content], asset.name, { type: asset.type });
                 await geminiFileService.registerLocalFile(internalName, asset.name, assetFile);
             }
             log.info(`useCorpusProcessor: Registered ${corpusAssetsToRegister.length} generated corpus assets in the local DB for future sync.`);
             
-            // Re-load context documents into memory. Since they weren't cleared from the DB, this will be fast.
             await loadContext();
-            
-            // --- Targeted remote file replacement for CORPUS assets only ---
-            log.info('useCorpusProcessor: Starting targeted remote file replacement for corpus assets...');
-            
-            const namesToDelete = newCorpusAssetNames;
-            log.info('useCorpusProcessor: Identifying remote corpus files for deletion.', { namesToDelete });
-            
-            const remoteFiles = await geminiFileService.listFilesFromApi();
-            const filesToDelete = remoteFiles.filter(remoteFile => namesToDelete.has(remoteFile.displayName));
-            
-            if (filesToDelete.length > 0) {
-                log.info(`useCorpusProcessor: Found ${filesToDelete.length} remote corpus files to delete.`);
-                const deletionPromises = filesToDelete.map(file => geminiFileService.deleteFileFromApiOnly(file.name));
-                await Promise.all(deletionPromises);
-                log.info('useCorpusProcessor: Remote corpus deletion complete.');
-            } else {
-                log.info('useCorpusProcessor: No matching remote corpus files found for deletion.');
-            }
-
-            // Trigger a sync which will upload the newly registered local files
-            await refreshSyncedFiles();
+            await syncCorpus();
 
             setIsCorpusReady(true);
             setSuccessMessage(`Corpus processed: ${processedData.posts.length} posts and ${newFileContents.size} total files loaded! Sync initiated.`);
@@ -145,7 +121,7 @@ export const useCorpusProcessor = (options: CorpusProcessorOptions = {}) => {
         } finally {
             setIsLoading(false);
         }
-    }, [resetData, setPosts, setDeliveryRecords, setOpenRecords, setSubscriberRecords, setIsCorpusReady, options.onProcessSuccess, loadContext, refreshSyncedFiles]);
+    }, [resetData, setPosts, setDeliveryRecords, setOpenRecords, setSubscriberRecords, setIsCorpusReady, options.onProcessSuccess, loadContext, syncCorpus]);
 
     const dragHandlers = {
       onDrop: (event: React.DragEvent<HTMLDivElement>) => {

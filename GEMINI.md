@@ -7,7 +7,7 @@ This document outlines the standard operating procedures for our development ses
 
 ## 2. Changelog Maintenance
 
-An internal changelog is maintained at `/.aide/CHANGELOG.md`. This file will be updated automatically with every build, providing a human-readable history of all requested changes and implementations.
+An internal changelog is maintained at `/.idx/aide/CHANGELOG.md`. This file will be updated automatically with every build, providing a human-readable history of all requested changes and implementations.
 
 ## 3. Coding Standards
 
@@ -20,7 +20,7 @@ An internal changelog is maintained at `/.aide/CHANGELOG.md`. This file will be 
 
 ## 4. Known Issues (Do Not Fix)
 
-A detailed list of known issues that should not be fixed is maintained in the `/.aide/IGNORE.md` file. Refer to that document for specific instructions on what to ignore.
+A detailed list of known issues that should not be fixed is maintained in the `/.idx/aide/IGNORE.md` file. Refer to that document for specific instructions on what to ignore.
 
 ## 5. Special Commands
 
@@ -53,19 +53,19 @@ To improve workflow management, the following special commands can be used as yo
 
 - `#ignore`
   - **Usage:** Start your prompt with `#ignore` when we are discussing a persistent problem that you want me to add to the ignore list.
-  - **Action:** I will summarize the problem we're discussing and add it as a new entry to `/.aide/IGNORE.md`. This formally documents it as an issue I should no longer try to fix.
+  - **Action:** I will summarize the problem we're discussing and add it as a new entry to `/.idx/aide/IGNORE.md`. This formally documents it as an issue I should no longer try to fix.
 
 - `#map <option>`
   - **Usage:** Use one of the following commands to interact with `APPMAP.md`.
   - **Actions:**
-    - `#map update`: Triggers an update of `APPMAP.md` based on the current state of the application. Afterwards, I will ask if we should add any reference material from recent changes to `/.aide/REFERENCE.md`.
+    - `#map update`: Triggers an update of `APPMAP.md` based on the current state of the application. Afterwards, I will ask if we should add any reference material from recent changes to `/.idx/aide/REFERENCE.md`.
     - `#map audit`: Triggers a full audit of `APPMAP.md` to confirm that all elements are used and current, and identifies any additions, removals, or edits required.
 
 - `#backlog <option>`
   - **Usage:** Use one of the following commands as your entire prompt to manage the feature backlog.
   - **Actions:**
-    - `#backlog -add`: After discussing a feature you'd like to implement later, use this command. I will summarize the feature from our previous conversation and add it to `/.aide/BACKLOG.md`.
-    - `#backlog -read`: I will respond with the current contents of `/.aide/BACKLOG.md`.
+    - `#backlog -add`: After discussing a feature you'd like to implement later, use this command. I will summarize the feature from our previous conversation and add it to `/.idx/aide/BACKLOG.md`.
+    - `#backlog -read`: I will respond with the current contents of `/.idx/aide/BACKLOG.md`.
 
 - `#export_context`
   - **Usage:** Send `#export_context` as the prompt.
@@ -77,8 +77,8 @@ To improve workflow management, the following special commands can be used as yo
 
 - `#build`
   - **Usage:** Send `#build` as the prompt.
-  - **Pre-Action:** Before I execute the build, I will provide a recommendation on whether work needs to be documented in `/.aide/REFERENCE.md`, `/.aide/APPMAP.md`, `/.aide/CONEXTMAP.md`. YOU MUST ASK THE USER FOR APPROVAL TO PROCEED.
-  - **Action:** With every set of modifications, I should automatically increment the build number. The format is `YYYYMMDD.build`, where: `YYYYMMDD` is the current date. `build` is a number that starts at `1` each day and increments with each change. This build number is visible in the application footer. Additionally, I must add a new section in CHANGELOG.md that documents all net changes that were made since the last build command, based on what's my context, and following the format already established. Finally, I will review and update `/.aide/APPMAP.md` and `/.aide/CONTEXTMAP.md` to ensure they accurately reflect the current state of the application's architecture and file structure.
+  - **Pre-Action:** Before I execute the build, I will provide a recommendation on whether work needs to be documented in `/.idx/aide/REFERENCE.md`, `/.idx/aide/APPMAP.md`, `/.idx/aide/CONEXTMAP.md`. YOU MUST ASK THE USER FOR APPROVAL TO PROCEED.
+  - **Action:** With every set of modifications, I should automatically increment the build number. The format is `YYYYMMDD.build`, where: `YYYYMMDD` is the current date. `build` is a number that starts at `1` each day and increments with each change. This build number is visible in the application footer. Additionally, I must add a new section in CHANGELOG.md that documents all net changes that were made since the last build command, based on what's my context, and following the format already established. Finally, I will review and update `/.idx/aide/APPMAP.md` and `/.idx/aide/CONTEXTMAP.md` to ensure they accurately reflect the current state of the application's architecture and file structure.
  
 ## 6. Architectural Principles
 

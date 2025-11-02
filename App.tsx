@@ -5,10 +5,10 @@ import CockpitButton from './components/CockpitButton';
 import ToolPanel from './components/ToolPanel';
 import Logo from './components/icons/Logo';
 import ContentCorpusUploader from './components/ContentCorpusUploader';
-import { DataProvider, DataContext } from './contexts/DataContext';
-import { SettingsProvider, SettingsContext } from './contexts/SettingsContext';
-import { ContentProvider, ContentContext } from './contexts/ContentContext';
-import { GeminiCorpusProvider, GeminiCorpusContext } from './contexts/GeminiCorpusContext';
+import DataProvider, { DataContext } from './contexts/DataContext';
+import SettingsProvider, { SettingsContext } from './contexts/SettingsContext';
+import ContentProvider, { ContentContext } from './contexts/ContentContext';
+import GeminiCorpusProvider, { GeminiCorpusContext } from './contexts/GeminiCorpusContext';
 import { TestModeProvider, TestModeContext } from './contexts/TestModeContext';
 import { useCorpusProcessor } from './hooks/useCorpusProcessor';
 import { APP_CONFIG } from './config/app_config';
@@ -29,35 +29,25 @@ const AppInitializer: React.FC<{ children: React.ReactNode }> = ({ children }) =
         const initializeApp = async () => {
             try {
                 log.info('AppInitializer: Starting application initialization...');
-                
-                // 1. Initialize external prompts
                 await initPrompts();
                 log.info('AppInitializer: Prompts initialized.');
-
-                // 2. Sanitize the database to remove any orphaned file content records
                 await dbService.sanitizeFileContentStore();
                 log.info('AppInitializer: Database sanitized.');
-
                 setIsInitialized(true);
                 log.info('AppInitializer: Initialization complete. Rendering application.');
-
             } catch (error) {
                 log.error('Fatal error during application initialization:', error);
-                // You could render a global error state here
             }
         };
-
         initializeApp();
     }, []);
 
     if (!isInitialized) {
-        // You can render a global loading spinner here if desired
         return null; 
     }
 
     return <>{children}</>;
 };
-
 
 const AppContent: React.FC = () => {
   const [activeTool, setActiveTool] = useState<Tool | null>(null);
@@ -76,7 +66,6 @@ const AppContent: React.FC = () => {
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
   const [isPromptManagerOpen, setIsPromptManagerOpen] = useState(false);
 
-  // Restore State
   const [isRestoreLoading, setIsRestoreLoading] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [restoreProgress, setRestoreProgress] = useState('');
@@ -89,35 +78,27 @@ const AppContent: React.FC = () => {
       setIsRestoreLoading(true);
       setRestoreError(null);
       setRestoreProgress('Reading backup file...');
-
       try {
           if (!file || !file.type.includes('zip')) {
               throw new Error('Please provide a valid .zip backup file.');
           }
-          
           const zip = await JSZip.loadAsync(file);
           const backupFile = zip.file('database_backup.json');
-
           if (!backupFile) {
-              throw new Error('Invalid backup archive: "database_backup.json" not found inside the ZIP file.');
+              throw new Error('Invalid backup archive: "database_backup.json" not found.');
           }
-          
           setRestoreProgress('Parsing backup data...');
           const fileContent = await backupFile.async('text');
           const jsonData = JSON.parse(fileContent);
-          
           setRestoreProgress('Restoring database...');
           await dbService.importDB(jsonData);
-          
           setRestoreProgress('Refreshing application state...');
           await dataContext.loadCorpus();
           await contentContext.loadContext();
-          
           setRestoreProgress('Restore process initiated. Syncing will begin shortly.');
-          
       } catch (e: any) {
           log.error('Database restore failed:', e);
-          setRestoreError(`Restore failed: ${e.message}. The file may be corrupted or invalid.`);
+          setRestoreError(`Restore failed: ${e.message}.`);
           setRestoreProgress('');
       } finally {
           setTimeout(() => {
@@ -133,9 +114,7 @@ const AppContent: React.FC = () => {
     event.stopPropagation();
     setIsDraggingOverCorpus(false);
     const file = event.dataTransfer.files?.[0];
-    if (file) {
-      await processZipFile(file);
-    }
+    if (file) await processZipFile(file);
   };
   
   const handleRestoreDrop = async (event: React.DragEvent<HTMLDivElement>) => {
@@ -143,14 +122,10 @@ const AppContent: React.FC = () => {
       event.stopPropagation();
       setIsDraggingOverRestore(false);
       const file = event.dataTransfer.files?.[0];
-      if (file) {
-        await restoreFromFile(file);
-      }
+      if (file) await restoreFromFile(file);
   };
 
-  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault(); // Prevent default to allow drop
-  };
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => event.preventDefault();
   
   const isSyncing = corpusStatus === 'SYNCING';
   const combinedIsLoading = isCorpusLoading || isRestoreLoading || isSyncing;
@@ -162,9 +137,7 @@ const AppContent: React.FC = () => {
         return false; 
     }) ?? false) || !config.enabled;
 
-    if (config.id === Tool.RegressionTests) {
-        isDisabled = !isTestMode;
-    }
+    if (config.id === Tool.RegressionTests) isDisabled = !isTestMode;
 
     return {
         id: config.id,
@@ -177,16 +150,11 @@ const AppContent: React.FC = () => {
   
   const getCorpusStatusMessage = () => {
     switch (corpusStatus) {
-        case 'SYNCING':
-            return 'Syncing corpus with AI...';
-        case 'READY':
-            return 'Corpus synced and ready.';
-        case 'ERROR':
-            return 'Error syncing corpus.';
-        case 'EMPTY':
-            return 'Awaiting data to sync corpus...';
-        default:
-            return null;
+        case 'SYNCING': return 'Syncing corpus with AI...';
+        case 'READY': return 'Corpus synced and ready.';
+        case 'ERROR': return 'Error syncing corpus.';
+        case 'EMPTY': return 'Awaiting data to sync corpus...';
+        default: return null;
     }
   };
 
@@ -194,9 +162,7 @@ const AppContent: React.FC = () => {
     <div className="text-center animate-fade-in-up">
       <header className="mb-12 flex flex-col items-center">
         <Logo className="w-48 h-48" />
-        <h1 className="mt-6 text-4xl md:text-5xl font-extrabold text-gray-200 tracking-tight">
-          Creator Cockpit
-        </h1>
+        <h1 className="mt-6 text-4xl md:text-5xl font-extrabold text-gray-200 tracking-tight">Creator Cockpit</h1>
          <p className="mt-2 text-sm text-blue-400 font-mono h-4">
           {isRestoreLoading ? restoreProgress : getCorpusStatusMessage()}
          </p>
@@ -223,19 +189,11 @@ const AppContent: React.FC = () => {
                 onDragOver={handleDragOver}
                 onDragEnter={() => !combinedIsLoading && setIsDraggingOverCorpus(true)}
                 onDragLeave={() => setIsDraggingOverCorpus(false)}
-                className={`transition-all duration-300 rounded-lg ${isDraggingOverCorpus ? 'ring-4 ring-blue-500 ring-offset-2 ring-offset-gray-900' : ''}`}
-              >
-                <CockpitButton
-                  title={tool.title}
-                  description={tool.description}
-                  icon={tool.icon}
-                  onClick={() => setActiveTool(tool.id)}
-                  disabled={tool.disabled}
-                />
+                className={`transition-all duration-300 rounded-lg ${isDraggingOverCorpus ? 'ring-4 ring-blue-500 ring-offset-2 ring-offset-gray-900' : ''}`}>
+                <CockpitButton {...tool} onClick={() => setActiveTool(tool.id)} />
               </div>
             );
           }
-          
           if (tool.id === Tool.DATABASE_RESTORER) {
             return (
               <div
@@ -244,31 +202,13 @@ const AppContent: React.FC = () => {
                 onDragOver={handleDragOver}
                 onDragEnter={() => !combinedIsLoading && setIsDraggingOverRestore(true)}
                 onDragLeave={() => setIsDraggingOverRestore(false)}
-                className={`transition-all duration-300 rounded-lg ${isDraggingOverRestore ? 'ring-4 ring-blue-500 ring-offset-2 ring-offset-gray-900' : ''}`}
-              >
-                <CockpitButton
-                  title={tool.title}
-                  description={tool.description}
-                  icon={tool.icon}
-                  onClick={() => setActiveTool(tool.id)}
-                  disabled={tool.disabled}
-                />
+                className={`transition-all duration-300 rounded-lg ${isDraggingOverRestore ? 'ring-4 ring-blue-500 ring-offset-2 ring-offset-gray-900' : ''}`}>
+                <CockpitButton {...tool} onClick={() => setActiveTool(tool.id)} />
               </div>
             );
           }
-          
           if(tool.id === Tool.RegressionTests && !isTestMode) return null;
-
-          return (
-            <CockpitButton
-              key={tool.id}
-              title={tool.title}
-              description={tool.description}
-              icon={tool.icon}
-              onClick={() => setActiveTool(tool.id)}
-              disabled={tool.disabled}
-            />
-          );
+          return <CockpitButton key={tool.id} {...tool} onClick={() => setActiveTool(tool.id)} />;
         })}
       </div>
     </div>
@@ -281,7 +221,6 @@ const AppContent: React.FC = () => {
     const ToolComponent = selectedToolConfig.component;
     const handleClose = () => setActiveTool(null);
 
-    // Handle special case for ContentCorpusUploader props
     if (activeTool === Tool.ContentCorpus) {
       return <ContentCorpusUploader onUploadSuccess={() => setActiveTool(Tool.PostInsights)} onClose={handleClose} />;
     }
@@ -294,30 +233,17 @@ const AppContent: React.FC = () => {
     const selectedTool = tools.find(t => t.id === activeTool);
     if (!selectedTool) return null;
 
-    const usesAi = [
-      Tool.SocialPostAssistant,
-      Tool.CHAT_ASSISTANT,
-      Tool.QuoteFinder
-    ].includes(activeTool);
+    const usesAi = [Tool.SocialPostAssistant, Tool.CHAT_ASSISTANT, Tool.QuoteFinder].includes(activeTool);
 
     return (
-      <ToolPanel
-        title={selectedTool.title}
-        onClose={() => setActiveTool(null)}
-        showModelInfo={usesAi}
-        onOpenSettings={() => setIsSettingsPanelOpen(true)}
-      >
+      <ToolPanel title={selectedTool.title} onClose={() => setActiveTool(null)} showModelInfo={usesAi} onOpenSettings={() => setIsSettingsPanelOpen(true)}>
         {renderToolContent()}
       </ToolPanel>
     );
   };
 
   return (
-    <div 
-      className="min-h-screen bg-gray-900 flex flex-col p-4 sm:p-6 lg:p-8"
-      onDragOver={handleDragOver} // Prevent browser from opening dropped file
-      onDrop={(e) => { e.preventDefault() }} // Prevent browser from opening dropped file
-    >
+    <div className="min-h-screen bg-gray-900 flex flex-col p-4 sm:p-6 lg:p-8" onDragOver={handleDragOver} onDrop={(e) => e.preventDefault()}>
       <main className="flex-grow flex flex-col items-center justify-center">
         {activeTool ? renderToolPanel() : renderCockpit()}
       </main>
@@ -329,32 +255,18 @@ const AppContent: React.FC = () => {
       <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-3">
         {!activeTool && (
           <>
-            <button
-                onClick={() => setIsPromptManagerOpen(true)}
-                title="Prompt Inspector"
-                className="p-3 bg-gray-700 text-gray-300 rounded-full shadow-lg hover:bg-gray-600 hover:text-white transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500 animate-fade-in"
-            >
+            <button onClick={() => setIsPromptManagerOpen(true)} title="Prompt Inspector" className="p-3 bg-gray-700 text-gray-300 rounded-full shadow-lg hover:bg-gray-600 hover:text-white transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500 animate-fade-in">
                 <MagnifyingGlassIcon className="w-6 h-6" />
             </button>
-            <button
-                onClick={() => setIsSettingsPanelOpen(true)}
-                title="Global AI Settings"
-                className="p-3 bg-gray-700 text-gray-300 rounded-full shadow-lg hover:bg-gray-600 hover:text-white transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500 animate-fade-in"
-            >
+            <button onClick={() => setIsSettingsPanelOpen(true)} title="Global AI Settings" className="p-3 bg-gray-700 text-gray-300 rounded-full shadow-lg hover:bg-gray-600 hover:text-white transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500 animate-fade-in">
                 <PencilIcon className="w-6 h-6" />
             </button>
             <LoggingLevelSelector />
           </>
         )}
       </div>
-      <GlobalSettingsPanel 
-          isOpen={isSettingsPanelOpen} 
-          onClose={() => setIsSettingsPanelOpen(false)} 
-      />
-      <PromptManagerPanel
-          isOpen={isPromptManagerOpen}
-          onClose={() => setIsPromptManagerOpen(false)}
-      />
+      <GlobalSettingsPanel isOpen={isSettingsPanelOpen} onClose={() => setIsSettingsPanelOpen(false)} />
+      <PromptManagerPanel isOpen={isPromptManagerOpen} onClose={() => setIsPromptManagerOpen(false)} />
     </div>
   );
 };
@@ -362,15 +274,15 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => (
   <TestModeProvider>
     <AppInitializer>
-        <DataProvider>
-            <SettingsProvider>
-                <ContentProvider>
-                    <GeminiCorpusProvider>
-                        <AppContent />
-                    </GeminiCorpusProvider>
-                </ContentProvider>
-            </SettingsProvider>
-        </DataProvider>
+      <DataProvider>
+        <SettingsProvider>
+          <ContentProvider>
+            <GeminiCorpusProvider>
+              <AppContent />
+            </GeminiCorpusProvider>
+          </ContentProvider>
+        </SettingsProvider>
+      </DataProvider>
     </AppInitializer>
   </TestModeProvider>
 );

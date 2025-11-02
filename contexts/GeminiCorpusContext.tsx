@@ -1,17 +1,15 @@
 import React, { createContext, useState, useEffect, ReactNode, useCallback, useContext, useMemo, useRef } from 'react';
-import { GeminiFile, GeminiCorpusContextType, CorpusSyncStatus } from '../types';
+import { GeminiFile, GeminiCorpusContextType, CorpusSyncStatus, FileContentRecord } from '../types';
 import * as geminiFileService from '../services/geminiFileService';
 import * as dbService from '../services/dbService';
 import { log } from '../services/loggingService';
 import { DataContext } from './DataContext';
 
-const POLL_INTERVAL = 5000; // 5 seconds
-const MAX_POLL_ATTEMPTS = 120; // 10 minutes max polling time
 const MAX_CONCURRENT_UPLOADS = 5;
 
 export const GeminiCorpusContext = createContext<GeminiCorpusContextType>({
     status: 'EMPTY',
-    contextFiles: new Map(),
+    syncedFiles: new Map(),
     syncCorpus: async () => {},
     syncStatus: 'awaiting-sync',
 });
@@ -20,18 +18,17 @@ interface GeminiCorpusProviderProps {
     children: ReactNode;
 }
 
-export const GeminiCorpusProvider = ({ children }: GeminiCorpusProviderProps) => {
+export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ children }) => {
     const { isCorpusReady } = useContext(DataContext);
     const [status, setStatus] = useState<CorpusSyncStatus>('EMPTY');
-    const [contextFiles, setContextFiles] = useState<Map<string, GeminiFile>>(new Map());
+    const [syncedFiles, setSyncedFiles] = useState<Map<string, GeminiFile>>(new Map());
     const [syncStatus, setSyncStatus] = useState('awaiting-sync');
     const isSyncing = useRef(false);
-    const pollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     const loadFromCache = useCallback(async () => {
         log.info('GeminiCorpusContext: Loading files from cache.');
         const files = await geminiFileService.loadFilesFromCache();
-        setContextFiles(files);
+        setSyncedFiles(files);
         if (files.size > 0) {
             setStatus('READY');
             log.info(`GeminiCorpusContext: Loaded ${files.size} files from cache. Status set to READY.`);
@@ -52,19 +49,22 @@ export const GeminiCorpusProvider = ({ children }: GeminiCorpusProviderProps) =>
         log.info('GeminiCorpusContext: Starting corpus synchronization...');
 
         try {
-            const localFiles = await dbService.getAll('corpus_files');
-            const remoteFiles = new Map((await geminiFileService.listGeminiFiles()).map(f => [f.displayName, f]));
+            await dbService.sanitizeFileContentStore();
 
-            log.info(`Found ${localFiles.length} local files and ${remoteFiles.size} remote files.`);
+            const localFiles: FileContentRecord[] = await dbService.getAll('file_contents');
+            const remoteFilesMap: Map<string, GeminiFile> = new Map((await geminiFileService.listGeminiFiles()).map(f => [f.displayName, f]));
+
+            log.info(`Found ${localFiles.length} local files and ${remoteFilesMap.size} remote files.`);
             setSyncStatus('analyzing-diff');
 
-            const filesToDelete = Array.from(remoteFiles.values()).filter(rf => 
-                !localFiles.some(lf => lf.id === rf.displayName)
+            const filesToDelete = Array.from(remoteFilesMap.values()).filter(rf => 
+                !localFiles.some(lf => lf.internalName === rf.displayName)
             );
 
-            const filesToUpload = localFiles.filter(lf => 
-                !remoteFiles.has(lf.id) || new Date(lf.modified) > new Date(remoteFiles.get(lf.id)!.createTime)
-            );
+            const filesToUpload = localFiles.filter(lf => {
+                const remoteFile = remoteFilesMap.get(lf.internalName);
+                return !remoteFile || new Date(lf.modified) > new Date(remoteFile.updateTime);
+            });
             
             log.info(`${filesToDelete.length} files to delete, ${filesToUpload.length} files to upload.`);
 
@@ -77,7 +77,7 @@ export const GeminiCorpusProvider = ({ children }: GeminiCorpusProviderProps) =>
             if (filesToUpload.length > 0) {
                 setSyncStatus('queueing-uploads');
                 let uploadedCount = 0;
-                const uploadPromises = [];
+                const uploadPromises: Promise<any>[] = [];
 
                 const uploadQueue = [...filesToUpload];
 
@@ -86,17 +86,17 @@ export const GeminiCorpusProvider = ({ children }: GeminiCorpusProviderProps) =>
                         const fileDetail = uploadQueue.shift();
                         if(fileDetail) {
                             const fileBlob = fileDetail.content;
-                            const file = new File([fileBlob], fileDetail.name, { type: fileDetail.type, lastModified: new Date(fileDetail.modified).getTime() });
+                            const file = new File([fileBlob], fileDetail.name, { type: fileDetail.mimeType, lastModified: fileDetail.modified });
 
                             uploadPromises.push((async () => {
                                 try {
-                                    const uploadedFile = await geminiFileService.uploadFileToCorpus(file, fileDetail.id);
+                                    const uploadedFile = await geminiFileService.uploadFileToCorpus(file, fileDetail.internalName);
                                     uploadedCount++;
                                     setSyncStatus(`uploaded ${uploadedCount}/${filesToUpload.length}`);
                                     return uploadedFile;
                                 } catch (uploadError) {
                                     log.error(`Failed to upload ${fileDetail.name}:`, uploadError);
-                                    return null; // Don't let one failure stop the whole batch
+                                    return null;
                                 }
                             })());
 
@@ -120,8 +120,8 @@ export const GeminiCorpusProvider = ({ children }: GeminiCorpusProviderProps) =>
             const finalRemoteFiles = await geminiFileService.listGeminiFiles();
             const finalFilesMap = new Map(finalRemoteFiles.map(f => [f.displayName, f]));
             
-            setContextFiles(finalFilesMap);
-            geminiFileService.cacheFiles(finalFilesMap);
+            setSyncedFiles(finalFilesMap);
+            await geminiFileService.cacheFiles(finalFilesMap);
             setStatus('READY');
             setSyncStatus('sync-complete');
             log.info('GeminiCorpusContext: Corpus synchronization complete. Status: READY.');
@@ -149,14 +149,16 @@ export const GeminiCorpusProvider = ({ children }: GeminiCorpusProviderProps) =>
     
     const value = useMemo(() => ({
         status,
-        contextFiles,
+        syncedFiles,
         syncCorpus,
         syncStatus
-    }), [status, contextFiles, syncCorpus, syncStatus]);
+    }), [status, syncedFiles, syncCorpus, syncStatus]);
 
     return (
         <GeminiCorpusContext.Provider value={value}>
             {children}
         </GeminiCorpusContext.Provider>
     );
-}
+};
+
+export default GeminiCorpusProvider;

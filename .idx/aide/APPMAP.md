@@ -29,7 +29,7 @@ This directory contains all reusable React components that form the user interfa
 -   **`GlobalSettingsPanel.tsx`**: A modal panel for configuring global AI settings, such as the model, temperature, and safety settings.
 -   **`LoggingLevelSelector.tsx`**: A dropdown component in the footer for setting the application's console log level.
 -   **`PostInsights.tsx`**: A dashboard that displays analytics and a searchable table of all processed posts from the corpus.
--   **`PromptManagerPanel.tsx`**: An inspector panel that allows developers to view all system prompts and context documents used by the AI.
+-   **`PromptManagerPanel.tsx`**: An inspector panel that allows developers to view all system prompts and context documents used by the AI. Includes a "Purge Database" button for clearing all application data from IndexedDB.
 -   **`QuoteFinder.tsx`**: The UI for the "Quotes and Callbacks" tool, allowing users to find quotes or generate contextual callbacks from their content. Uses `promptService` to fetch its templates and includes integrated UTM tagging.
 -   **`RegressionTestsPanel.tsx`**: A developer panel, visible only in Test Mode, for toggling specific regression test conditions.
 -   **`SocialPostAssistant.tsx`**: A tool for generating social media posts from an article, with options for platform, tone, inspirations, and post regeneration. Uses `promptService` to fetch templates and includes integrated UTM tagging.

@@ -1,8 +1,4 @@
-// FIX: Added import for React to resolve namespace errors for React types like React.FC and React.ReactNode.
 import React from 'react';
-// FIX: Removed circular dependency import. The types DeliveryRecord, OpenRecord, Post, and SubscriberRecord are defined within this file.
-// import { DeliveryRecord, OpenRecord, Post, SubscriberRecord } from ".";
-
 
 export enum Tool {
   ContentCorpus = 'CONTENT_CORPUS',
@@ -40,36 +36,33 @@ export interface ContextDocument {
 }
 
 export interface GeminiFile {
-  name: string; // e.g., "files/12345"
-  displayName: string; // This will hold the API name
+  name: string; 
+  displayName: string;
   mimeType: string;
-  sizeBytes: string; // API returns it as a string
-  createTime: string; // ISO 8601 date string
-  updateTime: string; // ISO 8601 date string
-  expirationTime?: string; // ISO 8601 date string
+  sizeBytes: string;
+  createTime: string;
+  updateTime: string;
+  expirationTime?: string;
   uri: string;
   state?: 'PROCESSING' | 'ACTIVE' | 'FAILED';
   sha256Hash?: string;
-  videoMetadata?: {
-    video_duration: {
-      seconds: number;
-      nanos: number;
-    }
-  };
+  videoMetadata?: { video_duration: { seconds: number; nanos: number; } };
   isDisplayNameCached?: boolean;
-  cachedDisplayName?: string; // New property for the user-facing name
+  cachedDisplayName?: string;
   context?: string;
   scope?: string;
 }
 
 export interface FileContentRecord {
-  internalName: string; // The prefixed name, e.g., __cc_...
+  internalName: string;
   content: Blob;
   mimeType: string;
+  name: string;
+  type: string;
+  modified: number;
 }
 
 export interface Post {
-  // From posts.csv
   post_id: string;
   post_date: string;
   is_published: boolean;
@@ -80,8 +73,6 @@ export interface Post {
   title: string;
   subtitle: string;
   podcast_url: string;
-
-  // Enriched data
   word_count: number;
   total_deliveries: number;
   total_opens: number;
@@ -123,14 +114,12 @@ export interface SubscriberRecord {
   first_payment_at?: string | null;
 }
 
-// FIX: Moved CallbackResult from QuoteFinder.tsx to types.ts to be shared across the application.
 export interface CallbackResult {
     topicHeader: string;
     workingArticleAnchor: string;
     precedingWorkingContext?: string;
     followingWorkingContext?: string;
     callbackSentence: string;
-    // FIX: Added anchorQuote property to match the AI response schema and fix type errors.
     anchorQuote: string;
     sourceTitle: string;
     sourceUrl: string;
@@ -173,18 +162,13 @@ export interface AvailableModel {
   supportsThinking: boolean;
 }
 
-export interface GeminiCorpusState {
-  status: 'EMPTY' | 'SYNCING' | 'READY' | 'ERROR';
-  allFiles: GeminiFile[];
-  corpusFiles: Map<string, GeminiFile>; // Key: e.g., 'all_posts.json', Value: GeminiFile object
-  contextFiles: Map<string, GeminiFile>; // Key: e.g., 'brand-brief.md', Value: GeminiFile object
-  error: string | null;
-}
+export type CorpusSyncStatus = 'EMPTY' | 'SYNCING' | 'READY' | 'ERROR';
 
-export interface GeminiCorpusContextType extends GeminiCorpusState {
-  resetCorpus: () => void;
-  refreshSyncedFiles: () => Promise<void>;
-  forceResync: () => Promise<void>;
+export interface GeminiCorpusContextType {
+    status: CorpusSyncStatus;
+    contextFiles: Map<string, GeminiFile>;
+    syncCorpus: () => Promise<void>;
+    syncStatus: string; 
 }
 
 export interface ToolConfig {
@@ -199,7 +183,6 @@ export interface ToolConfig {
   enabled: boolean;
 }
 
-// A complete prompt template including its content.
 export interface PromptTemplate {
     id: string;
     name: string;
@@ -209,7 +192,6 @@ export interface PromptTemplate {
     type: 'SYSTEM_INSTRUCTION' | 'USER_PROMPT';
 }
 
-// The definition of a prompt, without its content, used for configuration.
 export type PromptTemplateDefinition = Omit<PromptTemplate, 'content'>;
 
 export type LogLevelString = 'NONE' | 'ERROR' | 'INFO' | 'PROMPTS' | 'DEBUG';

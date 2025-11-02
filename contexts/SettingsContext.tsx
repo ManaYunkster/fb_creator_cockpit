@@ -26,7 +26,7 @@ interface SettingsProviderProps {
     children: ReactNode;
 }
 
-export const SettingsProvider = ({ children }: SettingsProviderProps) => {
+export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) => {
     const [logLevel, setLogLevelState] = useState<LogLevelString>(() => {
         try {
             const item = window.localStorage.getItem('logLevel');
@@ -98,7 +98,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
                 }
             } catch (error) {
                 console.error("Failed to fetch available models:", error);
-                const fallbackModels = [{ name: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash (Default)', supportsThinking: true }];
+                const fallbackModels = [{ name: 'gemini-1.5-flash', displayName: 'Gemini 1.5 Flash (Default)', supportsThinking: true }];
                 setAvailableModels(fallbackModels);
             } finally {
                 setIsLoadingModels(false);
@@ -121,4 +121,6 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
             {children}
         </SettingsContext.Provider>
     );
-}
+};
+
+export default SettingsProvider;

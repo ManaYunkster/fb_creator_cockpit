@@ -1,6 +1,5 @@
 import { GoogleGenAI, GenerateContentResponse, GenerateContentParameters } from "@google/genai";
-import { GeminiFile, AvailableModel, ModelConfig, FileContentRecord } from '../types';
-// FIX: Removed unused and incorrect import of `AI_PROMPTS`.
+import { GeminiFile, AvailableModel, ModelConfig, FileContentRecord, CorpusSyncStatus } from '../types';
 import { log } from './loggingService';
 import { APP_CONFIG } from "../config/app_config";
 import { parseInternalFileName } from '../config/file_naming_config';
@@ -9,13 +8,6 @@ import * as dbService from './dbService';
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // --- Stream Debug Wrapper ---
-/**
- * Wraps an async stream to log the full aggregated response when the stream completes.
- * This is for debugging purposes and only logs when the log level is 'DEBUG'.
- * @param stream The original async stream from the API.
- * @param callName A string identifier for the calling function for clear logs.
- * @returns A new async stream that yields all chunks and logs the result at the end.
- */
 async function* logStreamWrapper(stream: AsyncIterable<GenerateContentResponse>, callName: string): AsyncIterable<GenerateContentResponse> {
     const chunks: GenerateContentResponse[] = [];
     let fullResponseText = '';
@@ -29,7 +21,6 @@ async function* logStreamWrapper(stream: AsyncIterable<GenerateContentResponse>,
 }
 
 // --- Error Formatting ---
-
 const formatApiError = (error: any): string => {
     let message = 'An unexpected error occurred during the API call.';
 
@@ -175,18 +166,24 @@ export const listModels = async (): Promise<AvailableModel[]> => {
         log.error(`Error in geminiService.listModels:`, error);
         log.info('API call to list models failed. Falling back to default model list.');
         return [
-            { name: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash (Default)', supportsThinking: true }
+            { name: 'gemini-1.5-flash', displayName: 'Gemini 1.5 Flash (Default)', supportsThinking: true }
         ];
     }
 };
 
 
 const getMimeTypeFromFile = (file: File): string => {
-  if (file.type) {
+  const extension = file.name.split('.').pop()?.toLowerCase();
+
+  // Special handling for .json files, per user instruction
+  if (extension === 'json') {
+      return 'text/plain';
+  }
+
+  if (file.type && file.type !== 'application/octet-stream') {
     return file.type;
   }
   
-  const extension = file.name.split('.').pop()?.toLowerCase();
   const extensionMap: Record<string, string> = {
     'jsonl': 'application/json', 'wav': 'audio/wav', 'mp3': 'audio/mp3', 'aiff': 'audio/aiff',
     'aac': 'audio/aac', 'ogg': 'audio/ogg', 'flac': 'audio/flac', 'png': 'image/png',
@@ -196,7 +193,7 @@ const getMimeTypeFromFile = (file: File): string => {
     'avi': 'video/avi', 'flv': 'video/x-flv', 'mpg': 'video/mpg', 'webm': 'video/webm',
     'wmv': 'video/wmv', '3gp': 'video/3gpp', 'txt': 'text/plain', 'html': 'text/html',
     'css': 'text/css', 'js': 'text/javascript', 'ts': 'text/x-typescript', 'csv': 'text/csv',
-    'md': 'text/markdown', 'py': 'text/x-python', 'json': 'application/json', 'xml': 'text/xml',
+    'md': 'text/markdown', 'py': 'text/x-python', 'xml': 'text/xml',
     'rtf': 'application/rtf', 'pdf': 'application/pdf', 'doc': 'application/msword',
     'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'ppt': 'application/vnd.ms-powerpoint',
@@ -217,20 +214,20 @@ export const registerLocalFile = async (internalName: string, originalName: stri
     log.info('geminiFileService.registerLocalFile', { internalName, originalName });
     try {
         const content = await file.arrayBuffer().then(buffer => new Blob([buffer], { type: file.type }));
+        const correctMimeType = getMimeTypeFromFile(file);
         
-        // Save raw content
         const contentRecord: FileContentRecord = {
             internalName,
             content,
-            mimeType: file.type || getMimeTypeFromFile(file),
+            mimeType: correctMimeType,
+            name: originalName,
+            type: correctMimeType, // FIX: Use the determined MIME type
+            modified: file.lastModified,
         };
         await dbService.put('file_contents', contentRecord);
 
-        // Save preliminary metadata
-        // Note: The 'name' property will be a placeholder until the file is actually uploaded and synced.
-        // We use the displayName (internal name) as the temporary key.
         const preliminaryFile: Partial<GeminiFile> = {
-            name: `local/${internalName}`, // Placeholder name
+            name: `local/${internalName}`,
             displayName: internalName,
             cachedDisplayName: originalName,
             mimeType: contentRecord.mimeType,
@@ -253,36 +250,30 @@ interface UploadOptions {
   cacheAs?: string;
 }
 
-export const uploadFile = async (
+export const uploadFileToCorpus = async (
   file: File,
-  options: UploadOptions = {}
+  displayName: string
 ): Promise<GeminiFile> => {
-  log.info('geminiService.uploadFile', { file, options });
+  log.info('geminiService.uploadFileToCorpus', { file, displayName });
 
   if (!file || file.size === 0) {
-    const errorMessage = `Skipping upload of empty file: ${options.displayName || file.name}`;
+    const errorMessage = `Skipping upload of empty file: ${displayName}`;
     log.error(errorMessage);
     throw new Error(errorMessage); 
   }
 
   try {
-    let fileToUpload: File;
-    const finalDisplayName = options.displayName || file.name;
-
-    if (finalDisplayName.toLowerCase().endsWith('.json') || finalDisplayName.toLowerCase().endsWith('.jsonl')) {
-        log.info(`JSON file detected: "${finalDisplayName}". Applying .txt extension and text/plain MIME type for upload.`);
-        fileToUpload = new File([await file.arrayBuffer()], `${finalDisplayName}.txt`, { type: 'text/plain' });
-    } else {
-        const mimeType = options.mimeType || getMimeTypeFromFile(file);
-        log.info('Determined MIME Type:', mimeType);
-        fileToUpload = new File([await file.arrayBuffer()], finalDisplayName, { type: mimeType });
-    }
+    const mimeType = getMimeTypeFromFile(file);
+    log.info('Determined MIME Type:', mimeType);
+    
+    // The API requires the file name in the File object to not be the full path.
+    const fileToUpload = new File([await file.arrayBuffer()], displayName, { type: mimeType });
     
     const uploadFn = () => ai.files.upload({
         file: fileToUpload,
         config: {
-            displayName: finalDisplayName,
-            mimeType: fileToUpload.type,
+            displayName: displayName,
+            // mimeType is inferred from the File object, but we can specify it
         }
     });
     const response = await retryWithBackoff(uploadFn);
@@ -295,27 +286,20 @@ export const uploadFile = async (
     log.debug('uploadFile API Response:', response);
     const uploaded = response as GeminiFile;
     
-    // The displayName from the API might be the internal name. We need to ensure
-    // our passed `finalDisplayName` is what we store.
-    uploaded.displayName = finalDisplayName;
+    // The displayName is not automatically set in the response, so we set it manually.
+    uploaded.displayName = displayName;
 
-    if (options.cacheAs) {
-        uploaded.cachedDisplayName = options.cacheAs;
-        uploaded.isDisplayNameCached = true;
-    }
-    
-    // This `put` will either create the record or update the preliminary one.
-    // The key is `uploaded.name` which is the final API name (`files/123...`).
+    // Cache the fully resolved file details from the API response
     await dbService.put('files', uploaded);
 
-    // After uploading, we might have a preliminary record keyed by the local name. We should remove it.
-    await dbService.del('files', `local/${finalDisplayName}`).catch(() => {});
+    // Clean up the temporary local record
+    await dbService.del('files', `local/${displayName}`).catch(() => {});
 
     log.info(`Uploaded file "${fileToUpload.name}" to API, and updated/created DB record.`);
 
     return uploaded;
   } catch (error) {
-    log.error(`Error in geminiService.uploadFile:`, error);
+    log.error(`Error in geminiService.uploadFileToCorpus:`, error);
     throw new Error(formatApiError(error));
   }
 };
@@ -326,29 +310,21 @@ export const uploadFileToApiOnly = async (
 ): Promise<GeminiFile> => {
   log.info('geminiService.uploadFileToApiOnly', { file, options });
 
+  const finalDisplayName = options.displayName || file.name;
   if (!file || file.size === 0) {
-    const errorMessage = `Skipping API-only upload of empty file: ${options.displayName || file.name}`;
+    const errorMessage = `Skipping API-only upload of empty file: ${finalDisplayName}`;
     log.error(errorMessage);
     throw new Error(errorMessage);
   }
 
   try {
-    let fileToUpload: File;
-    const finalDisplayName = options.displayName || file.name;
-
-    if (finalDisplayName.toLowerCase().endsWith('.json') || finalDisplayName.toLowerCase().endsWith('.jsonl')) {
-        log.info(`JSON file detected: "${finalDisplayName}". Applying .txt extension and text/plain MIME type for upload.`);
-        fileToUpload = new File([await file.arrayBuffer()], `${finalDisplayName}.txt`, { type: 'text/plain' });
-    } else {
-        const mimeType = getMimeTypeFromFile(file);
-        fileToUpload = new File([await file.arrayBuffer()], finalDisplayName, { type: mimeType });
-    }
+    const mimeType = getMimeTypeFromFile(file);
+    const fileToUpload = new File([await file.arrayBuffer()], finalDisplayName, { type: mimeType });
     
     const uploadFn = () => ai.files.upload({
         file: fileToUpload,
         config: {
             displayName: finalDisplayName,
-            mimeType: fileToUpload.type,
         }
     });
     const response = await retryWithBackoff(uploadFn);
@@ -361,8 +337,9 @@ export const uploadFileToApiOnly = async (
     log.debug('uploadFileToApiOnly API Response:', response);
     const uploaded = response as GeminiFile;
     
+    // Manually add the intended displayName for consistency.
     uploaded.displayName = finalDisplayName;
-    uploaded.cachedDisplayName = finalDisplayName; // Set for UI consistency in chat panel
+    uploaded.cachedDisplayName = finalDisplayName; // For API only, the display name is the cache name
     
     return uploaded;
   } catch (error) {
@@ -372,19 +349,23 @@ export const uploadFileToApiOnly = async (
 };
 
 export const processFileMetadata = async (file: GeminiFile, cachedFile?: GeminiFile | null): Promise<GeminiFile> => {
+    // Attempt to get a more complete local version of the file first.
     const localCache = cachedFile || await dbService.get<GeminiFile>('files', file.name);
 
-    const processedFile = { ...file }; // Create a new object to avoid mutating the original
+    const processedFile = { ...file };
 
+    // Restore cached display name if it exists
     if (localCache?.cachedDisplayName) {
         processedFile.cachedDisplayName = localCache.cachedDisplayName;
         processedFile.isDisplayNameCached = true;
     }
 
+    // Attempt to parse internal naming convention
     const parsed = parseInternalFileName(processedFile.displayName);
     if (parsed) {
         processedFile.context = parsed.context;
         processedFile.scope = parsed.scope;
+        // If we don't have a cached friendly name, use the one from the file name.
         if (!processedFile.cachedDisplayName) {
             processedFile.cachedDisplayName = parsed.originalName;
         }
@@ -394,34 +375,47 @@ export const processFileMetadata = async (file: GeminiFile, cachedFile?: GeminiF
 };
 
 
-export const listFilesFromApi = async (): Promise<GeminiFile[]> => {
-    log.info('geminiService.listFilesFromApi (raw)');
+export const listGeminiFiles = async (): Promise<GeminiFile[]> => {
+    log.info('geminiService.listGeminiFiles (raw)');
     try {
         const allFiles: GeminiFile[] = [];
         const pager = await retryWithBackoff(() => ai.files.list());
 
+        // The pager is an async iterator
         for await (const file of pager as AsyncIterable<GeminiFile>) {
             allFiles.push(file);
         }
         
-        log.debug('listFilesFromApi API Response (raw):', allFiles);
+        log.debug('listGeminiFiles API Response (raw):', allFiles);
         return allFiles;
     } catch (error) {
-        log.error(`Error in geminiService.listFilesFromApi:`, error);
+        log.error(`Error in geminiService.listGeminiFiles:`, error);
         throw new Error("Failed to list files from API. Check your API key and permissions.");
     }
 };
 
-export const listFiles = async (): Promise<GeminiFile[]> => {
-    log.info('geminiService.listFiles (processed)');
+export const loadFilesFromCache = async (): Promise<Map<string, GeminiFile>> => {
+    log.info('geminiService.loadFilesFromCache');
     try {
         const allFilesFromDb = await dbService.getAll<GeminiFile>('files');
         const processedFiles = await Promise.all(allFilesFromDb.map(file => processFileMetadata(file)));
-        log.info('Total Files Found in DB (after name mapping):', processedFiles.length);
-        return processedFiles;
+        const fileMap = new Map(processedFiles.map(f => [f.displayName, f]));
+        log.info(`Loaded ${fileMap.size} files from DB cache.`);
+        return fileMap;
     } catch (error) {
-        log.error(`Error in geminiService.listFiles:`, error);
-        throw error;
+        log.error(`Error in geminiService.loadFilesFromCache:`, error);
+        return new Map();
+    }
+};
+
+export const cacheFiles = async (files: Map<string, GeminiFile>): Promise<void> => {
+    log.info(`geminiService.cacheFiles: Caching ${files.size} files.`);
+    try {
+        const fileList = Array.from(files.values());
+        await dbService.bulkPut('files', fileList);
+        log.info('Successfully cached files to IndexedDB.');
+    } catch (error) {
+        log.error('Error in geminiService.cacheFiles:', error);
     }
 };
 
@@ -444,33 +438,51 @@ export const getFile = async (name: string): Promise<GeminiFile> => {
 };
 
 export const deleteFileFromApiOnly = async (name: string): Promise<void> => {
-    log.info('geminiService.deleteFileFromApiOnly', { name });
+    log.info('geminiFileService.deleteFileFromApiOnly', { name });
     try {
         const deleteFn = () => ai.files.delete({ name });
         await retryWithBackoff(deleteFn);
         log.info(`File "${name}" deleted successfully from API.`);
     } catch (error) {
-        log.error(`Error in geminiService.deleteFileFromApiOnly for ${name}:`, error);
-        // Don't re-throw for sync, just log it.
+        log.error(`Error in geminiFileService.deleteFileFromApiOnly for ${name}:`, error);
+        throw new Error(formatApiError(error));
     }
 };
 
-
-export const deleteLocalFile = async (name: string): Promise<void> => {
-    log.info('geminiService.deleteLocalFile', { name });
+export const deleteLocalFile = async (internalName: string): Promise<void> => {
+    log.info('geminiFileService.deleteLocalFile', { internalName });
     try {
-        const fileMeta = await dbService.get<GeminiFile>('files', name);
-        if (fileMeta) {
-            await dbService.del('file_contents', fileMeta.displayName);
-        }
-        await dbService.del('files', name);
-        log.info(`File record for "${name}" deleted successfully from local DB.`);
+        // The name in the 'files' store could be `local/some-name` for unsynced files,
+        // or `files/some-name` for synced files.
+        const internalOnlyName = internalName.startsWith('local/') 
+            ? internalName.replace('local/', '')
+            : internalName;
+
+        await dbService.del('files', internalName); // Delete the main metadata record
+        await dbService.del('file_contents', internalOnlyName); // Delete the content
+        log.info(`Successfully deleted local file record for "${internalName}" and its content for "${internalOnlyName}".`);
     } catch (error) {
-        log.error(`Error in geminiService.deleteLocalFile for ${name}:`, error);
-        throw new Error(`Failed to delete local file record ${name}.`);
+        log.error('Error in geminiFileService.deleteLocalFile:', error);
+        throw new Error(`Failed to delete local file "${internalName}".`);
     }
 };
 
+export const deleteFileFromCorpus = async (name: string): Promise<void> => {
+    log.info('geminiService.deleteFileFromCorpus', { name });
+    try {
+        const deleteFn = () => ai.files.delete({ name });
+        await retryWithBackoff(deleteFn);
+        log.info(`File "${name}" deleted successfully from API.`);
+        
+        // Also remove from our local cache
+        await dbService.del('files', name);
+        log.info(`File record for "${name}" also deleted from local DB.`);
+
+    } catch (error) {
+        log.error(`Error in geminiService.deleteFileFromCorpus for ${name}:`, error);
+        throw new Error(formatApiError(error)); // Re-throw formatted error
+    }
+};
 
 export const generateContent = async (
   request: GenerateContentParameters
@@ -482,7 +494,6 @@ export const generateContent = async (
     const response = await retryWithBackoff(generateFn);
     log.debug('generateContent API Response:', response);
 
-    // FIX: Cast response to GenerateContentResponse to access promptFeedback property.
     const typedResponse = response as GenerateContentResponse;
     if (typedResponse.promptFeedback?.blockReason) {
         throw new Error(`Response was blocked due to safety settings: ${typedResponse.promptFeedback.blockReason}. Please adjust settings or your prompt.`);
@@ -502,6 +513,7 @@ export const generateContentWithFiles = async (
   modelConfig: ModelConfig,
   systemInstruction: string
 ): Promise<GenerateContentResponse> => {
+  // Construct the request parts, including file data
   const fileParts = files.map(file => ({
     fileData: { 
         fileUri: file.uri,
@@ -511,6 +523,7 @@ export const generateContentWithFiles = async (
   const textPart = { text: prompt };
   const contents = { parts: [textPart, ...fileParts] };
   
+  // Define generation config based on model capabilities and user settings
   const generateContentConfig: any = {
       temperature: modelConfig.temperature,
       systemInstruction,
@@ -530,7 +543,6 @@ export const generateContentWithFiles = async (
     const response = await retryWithBackoff(generateFn);
     log.debug('generateContentWithFiles API Response:', response);
     
-    // FIX: Cast response to GenerateContentResponse to access promptFeedback property.
     const typedResponse = response as GenerateContentResponse;
     if (typedResponse.promptFeedback?.blockReason) {
         throw new Error(`Response was blocked due to safety settings: ${typedResponse.promptFeedback.blockReason}. Please adjust settings or your prompt.`);
