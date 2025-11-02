@@ -1,6 +1,7 @@
 import { LogLevelString } from '../types';
+import { APP_CONFIG } from '../config/app_config';
 
-let currentLevel: LogLevelString = 'INFO'; // Default level
+let currentLevel: LogLevelString = APP_CONFIG.DEFAULT_LOG_LEVEL; // Default level
 
 /**
  * Sets the current logging level for the application.
