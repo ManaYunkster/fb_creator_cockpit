@@ -46,7 +46,7 @@ This document contains reference material for code, methods, functions, and cons
     -   **Structure:** `__cc_[context]_[scope]__[original_filename]`
     -   **`__cc`**: The application prefix for Creator Cockpit (`cc`).
     -   **`[context]`**: The general purpose of the file (e.g., `content`, `instrux`, `corpus`).
-    -   **`[scope]`**: Where the file applies (e.g., `global`, `spa`, `posts`).
+    -   **`[scope]`**: Where the file applies (e.g., `global`, `spa`, `chat`).
     -   **`__` (Separator):** A double underscore is used to clearly separate the system-generated prefix from the user's original filename, making parsing more robust.
     -   **Source of Truth:** The complete mapping of file purposes to their respective `context` and `scope` prefixes is defined in `/src/config/file_naming_config.ts`. This is the single source of truth for the entire system.
     -   **Implementation:**
@@ -99,7 +99,7 @@ This document contains reference material for code, methods, functions, and cons
 
 ### 7. Semantic Versioning and Build System
 
--   **File(s) Affected:** `config/app_config.ts`, `App.tsx`, `/.aide/README.md`
+-   **File(s) Affected:** `config/app_config.ts`, `App.tsx`, `/.idx/aide/GEMINI.md`
 -   **Problem:** The application only tracked a daily build number, which is insufficient for managing formal releases with distinct feature sets, bug fixes, and major updates.
 -   **Solution:** A dual-tracking system has been implemented to provide both granular build tracking and formal release versioning.
     -   **Semantic Versioning (`VERSION`):**
