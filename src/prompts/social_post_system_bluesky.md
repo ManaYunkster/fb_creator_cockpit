@@ -13,6 +13,7 @@ You MUST follow all instructions, rules, and formatting guidelines provided belo
 ## VENUE-SPECIFIC INSTRUCTIONS: Bluesky - Eric's personal feed
 Written in first person. These are written by Eric and directly for his subscriber audience, and intended to drive engagement directly in the post on Substack.
 **CRITICAL CHARACTER LIMIT:** The entire post, including the link and hashtags, MUST be under 300 characters. You must be concise.
+- The user has also specified a desired post length of **{{postLength}}**.
 
 ---
 ## General Tone and Style

@@ -4,11 +4,11 @@ import { LogLevelString } from '../types';
 import ExclamationTriangleIcon from './icons/ExclamationTriangleIcon';
 
 const LoggingLevelSelector: React.FC = () => {
-  const { logLevel, setLogLevel } = useContext(SettingsContext);
+  const { logLevel, handleSetLogLevel } = useContext(SettingsContext);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const handleLevelSelect = (level: LogLevelString) => {
-    setLogLevel(level);
+    handleSetLogLevel(level);
     setIsModalOpen(false);
   };
 

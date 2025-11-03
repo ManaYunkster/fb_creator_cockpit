@@ -80,33 +80,32 @@ export const SYSTEM_INSTRUCTIONS: Record<string, PromptTemplateDefinition> = {
 };
 
 export const USER_PROMPT_TEMPLATES: Record<string, PromptTemplateDefinition> = {
-    // Re-instating the base social post prompt template as it's a valid and used template.
-    SOCIAL_POST_BASE: {
-        id: 'SOCIAL_POST_USER_BASE',
-        name: 'Social Post Generator (Base)',
-        description: 'Base user prompt for generating social media posts from an article.',
-        filePath: '/src/prompts/social_post_system_substack.md', // This seems incorrect, but preserving for now.
+    SOCIAL_POST_USER: {
+        id: 'SOCIAL_POST_USER',
+        name: 'Social Post Generator (User)',
+        description: 'User prompt for generating social media posts from an article.',
+        filePath: '/src/prompts/social_post_user.md',
         type: 'USER_PROMPT',
     },
-    QUOTE_FINDER_QUOTES: {
-        id: 'QUOTE_FINDER_USER_QUOTES',
-        name: 'Quote Finder (Quote Mode)',
-        description: 'User prompt to find interesting quotes from a corpus.',
-        filePath: '/src/prompts/quote_finder_quote_mode_system.md',
+    SOCIAL_POST_USER_WITH_FILES: {
+        id: 'SOCIAL_POST_USER_WITH_FILES',
+        name: 'Social Post Generator (User, with files)',
+        description: 'User prompt for generating social media posts from an article when files are attached.',
+        filePath: '/src/prompts/social_post_user_with_files.md',
         type: 'USER_PROMPT',
     },
-    QUOTE_FINDER_CALLBACKS: {
-        id: 'QUOTE_FINDER_USER_CALLBACKS',
-        name: 'Quote Finder (Callback Mode)',
-        description: 'User prompt to find callback opportunities from a corpus.',
-        filePath: '/src/prompts/quote_finder_callback_mode_system.md',
+    QUOTE_FINDER_USER: {
+        id: 'QUOTE_FINDER_USER',
+        name: 'Quote Finder (User)',
+        description: 'User prompt to find quotes or callbacks from a corpus.',
+        filePath: '/src/prompts/quote_finder_user.md',
         type: 'USER_PROMPT',
     },
-    QUOTE_FINDER_REGEN: {
-        id: 'QUOTE_FINDER_USER_REGEN',
-        name: 'Callback Regenerator User',
+    QUOTE_FINDER_REGEN_USER: {
+        id: 'QUOTE_FINDER_REGEN_USER',
+        name: 'Callback Regenerator (User)',
         description: 'User prompt to regenerate a specific callback sentence.',
-        filePath: '/src/prompts/quote_finder_callback_regen_system.md',
+        filePath: '/src/prompts/quote_finder_regen_user.md',
         type: 'USER_PROMPT',
     },
 };

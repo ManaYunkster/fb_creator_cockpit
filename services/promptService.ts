@@ -101,30 +101,40 @@ export const AI_PROMPTS = {
     },
     getSocialPostPromptWithFetchedContent: async (venue: string, length: string, fetchedContent: string, articleTitle: string, quote: string | null, url: string, brandContext?: string, feedback?: string) => {
         const systemInstructionTemplate = getSocialPostSystemInstruction(venue);
-        const systemInstruction = systemInstructionTemplate.replace('{{brandContextSection}}', brandContext ? `\n\n## Brand Context\n${brandContext}` : '');
-        let userPrompt = `## TASK\nGenerate a social media post for ${venue} with a length of "${length}" based on the provided article content.\n\n## ARTICLE\n**Title:** ${articleTitle}\n**URL:** ${url}\n\n<article_content>${fetchedContent}</article_content>`;
+        const systemInstruction = systemInstructionTemplate
+            .replace('{{postLength}}', length)
+            .replace('{{brandContextSection}}', brandContext ? `\n\n## Brand Context\n${brandContext}` : '');
+        
+        const userPromptTemplate = getPromptContent(USER_PROMPT_TEMPLATES.SOCIAL_POST_USER.id);
+        const inspirationSection = quote ? `\n\n## INSPIRATION\nFocus the post on this quote/idea:\n<inspiration_quote>${quote}</inspiration_quote>` : '';
+        const feedbackSection = feedback ? `\n\n## FEEDBACK\nPlease regenerate the post based on this feedback: "${feedback}"` : '';
 
-        if (quote) {
-            userPrompt += `\n\n## INSPIRATION\nFocus the post on this quote/idea:\n<inspiration_quote>${quote}</inspiration_quote>`;
-        }
-        if (feedback) {
-            userPrompt += `\n\n## FEEDBACK\nPlease regenerate the post based on this feedback: "${feedback}"`;
-        }
-       
+        const userPrompt = userPromptTemplate
+            .replace('{{venue}}', venue)
+            .replace('{{articleTitle}}', articleTitle)
+            .replace('{{url}}', url)
+            .replace('{{fetchedContent}}', fetchedContent)
+            .replace('{{inspirationSection}}', inspirationSection)
+            .replace('{{feedbackSection}}', feedbackSection);
+
         return { systemInstruction, userPrompt };
     },
     getSocialPostPromptWithFiles: async (venue: string, length: string, contextFiles: GeminiFile[], postHtmlContent: string, articleTitle: string, quote: string | null, url: string, brandContext?: string, feedback?: string) => {
         const systemInstructionTemplate = getSocialPostSystemInstruction(venue);
-        const systemInstruction = systemInstructionTemplate.replace('{{brandContextSection}}', brandContext ? `\n\n## Brand Context\n${brandContext}` : '');
+        const systemInstruction = systemInstructionTemplate
+            .replace('{{postLength}}', length)
+            .replace('{{brandContextSection}}', brandContext ? `\n\n## Brand Context\n${brandContext}` : '');
         
-        let userPrompt = `## TASK\nGenerate a social media post for ${venue} with a length of "${length}" based on the attached article file.\n\n## ARTICLE METADATA\n**Title:** ${articleTitle}\n**URL:** ${url}`;
+        const userPromptTemplate = getPromptContent(USER_PROMPT_TEMPLATES.SOCIAL_POST_USER_WITH_FILES.id);
+        const inspirationSection = quote ? `\n\n## INSPIRATION\nFocus the post on this quote/idea:\n<inspiration_quote>${quote}</inspiration_quote>` : '';
+        const feedbackSection = feedback ? `\n\n## FEEDBACK\nPlease regenerate the post based on this feedback: "${feedback}"` : '';
 
-        if (quote) {
-            userPrompt += `\n\n## INSPIRATION\nFocus the post on this quote/idea:\n<inspiration_quote>${quote}</inspiration_quote>`;
-        }
-        if (feedback) {
-            userPrompt += `\n\n## FEEDBACK\nPlease regenerate the post based on this feedback: "${feedback}"`;
-        }
+        const userPrompt = userPromptTemplate
+            .replace('{{venue}}', venue)
+            .replace('{{articleTitle}}', articleTitle)
+            .replace('{{url}}', url)
+            .replace('{{inspirationSection}}', inspirationSection)
+            .replace('{{feedbackSection}}', feedbackSection);
 
         const articleFile = new File([postHtmlContent], "article.html", { type: 'text/html' });
         const uploadedArticleFile = await geminiFileService.uploadFileToApiOnly(articleFile, { displayName: "article.html" });
@@ -135,7 +145,8 @@ export const AI_PROMPTS = {
         const systemInstructionTemplate = getPromptContent(mode === 'quote' ? SYSTEM_INSTRUCTIONS.QUOTE_FINDER_SYSTEM.id : SYSTEM_INSTRUCTIONS.QUOTE_FINDER_CALLBACK_SYSTEM.id);
         const systemInstruction = systemInstructionTemplate.replace('{{brandContextSection}}', brandContext ? `\n\n## Brand & Author Context\n${brandContext}` : '');
 
-        const userPrompt = `## Working Article Content\n<article_content>\n${workingArticleContent}\n</article_content>`;
+        const userPromptTemplate = getPromptContent(USER_PROMPT_TEMPLATES.QUOTE_FINDER_USER.id);
+        const userPrompt = userPromptTemplate.replace('{{workingArticleContent}}', workingArticleContent);
         
         const schema = mode === 'quote' ? {
             type: Type.ARRAY,
@@ -189,7 +200,8 @@ export const AI_PROMPTS = {
         const systemInstructionTemplate = getPromptContent(SYSTEM_INSTRUCTIONS.QUOTE_FINDER_REGEN_SYSTEM.id);
         const systemInstruction = systemInstructionTemplate.replace('{{brandContextSection}}', brandContext ? `\n\n## Brand & Author Context\n${brandContext}` : '');
         
-        const userPrompt = `## ORIGINAL DATA\n${JSON.stringify(originalResult, null, 2)}`;
+        const userPromptTemplate = getPromptContent(USER_PROMPT_TEMPLATES.QUOTE_FINDER_REGEN_USER.id);
+        const userPrompt = userPromptTemplate.replace('{{originalResult}}', JSON.stringify(originalResult, null, 2));
 
         const schema = {
             type: Type.OBJECT,

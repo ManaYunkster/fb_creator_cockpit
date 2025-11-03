@@ -201,7 +201,7 @@ const ChatAssistantPanel: React.FC = () => {
                     .map(fileName => corpusFiles.get(fileName))
                     .filter((file): file is GeminiFile => !!file);
                 
-                const allPersistentFiles = [...geminiFilesForPrompt, ...activeCorpusFileObjects];
+                const allPersistentFiles = [...filteredGeminiFilesForPrompt, ...activeCorpusFileObjects];
                 const uniqueFiles = Array.from(new Map(allPersistentFiles.map((f: GeminiFile) => [f.name, f])).values());
 
                 uniqueFiles.forEach((file: GeminiFile) => {
