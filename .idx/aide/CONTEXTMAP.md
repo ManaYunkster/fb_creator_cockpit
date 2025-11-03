@@ -63,7 +63,7 @@ The following table lists all currently configured prefix combinations, derived 
 
 The mapping between a user's intent ("Purpose") and the resulting `[context]` and `[scope]` prefixes is defined and managed in a single configuration file:
 
--   **Location:** `/src/config/file_naming_config.ts`
+-   **Location:** `src/config/file_naming_config.ts`
 -   **Exported Constant:** `FILE_PURPOSES`
 
 This file is the single source of truth for this system. To add a new file type or context, you must add a new entry to the `FILE_PURPOSES` array in that file. The application's UI (e.g., the "Purpose" dropdown in the File Management panel) and logic are built dynamically from this configuration.

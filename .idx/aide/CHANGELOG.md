@@ -1,3 +1,9 @@
+## Version 1.6.0 (Build 20251102.2)
+
+*   **FEAT (File Management):** Enhanced file status display in the File Management panel. Files are now explicitly categorized as 'Local only', 'API only (temporary)', or 'Synced' based on their presence in the local database and on the Gemini API. A 'Sync status unknown' fallback is also included.
+*   **FIX (File Management):** Resolved a race condition in `dbService.ts` that caused the database purge to be blocked. A 100ms delay was added after closing the IndexedDB connection to ensure successful deletion.
+*   **REFACTOR (File Management):** Removed the `apiFileNames` state variable from `FileManagementPanel.tsx` as it is no longer needed with the new file status logic.
+
 # Changelog
 
 ## Version 1.5.0 (Build 20251102.1)
