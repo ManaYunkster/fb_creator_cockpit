@@ -51,6 +51,7 @@ export interface GeminiFile {
   cachedDisplayName?: string;
   context?: string;
   scope?: string;
+  status?: 'synced' | 'local_only' | 'api_only' | 'unknown';
 }
 
 export interface FileContentRecord {

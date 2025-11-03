@@ -182,6 +182,9 @@ export const purgeDatabase = async (): Promise<void> => {
         log.info('Closed existing DB connection before purging.');
     }
 
+    // Wait a moment to ensure all connections are released before deleting.
+    await new Promise(resolve => setTimeout(resolve, 100));
+
     return new Promise((resolve, reject) => {
         log.info(`Requesting deletion of database: ${DB_NAME}`);
         const deleteRequest = indexedDB.deleteDatabase(DB_NAME);

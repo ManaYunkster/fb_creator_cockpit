@@ -30,7 +30,7 @@ const formatDate = (dateString?: string) => {
 };
 
 const FileManagementPanel: React.FC = () => {
-    const { refreshSyncedFiles, forceResync } = useContext(geminiCorpusContext);
+    const { syncCorpus, forceResync } = useContext(geminiCorpusContext);
     const { addContextDocument, removeContextDocument } = useContext(ContentContext);
     
     const [files, setFiles] = useState<GeminiFile[]>([]);
@@ -59,15 +59,42 @@ const FileManagementPanel: React.FC = () => {
     const [isPurgeConfirmModalOpen, setIsPurgeConfirmModalOpen] = useState(false);
 
     const handleConfirmPurge = async () => {
-        log.info('FileManagementPanel: Purge confirmed. Deleting entire database.');
+        log.info('FileManagementPanel: Purge confirmed. Deleting all remote application files and entire local database.');
         setIsPurgeConfirmModalOpen(false);
+        setIsLoading(true);
+        setError(null);
+
         try {
+            // 1. Fetch all remote files
+            const remoteFiles = await geminiFileService.listGeminiFiles();
+            
+            // 2. Filter for application-managed files
+            const appFilesToDelete = remoteFiles.filter(f => f.displayName?.startsWith('__cc_'));
+            log.info(`Found ${appFilesToDelete.length} application-managed files to delete from the remote server.`);
+
+            // 3. Delete them from the API
+            if (appFilesToDelete.length > 0) {
+                const deletionPromises = appFilesToDelete.map(file => 
+                    geminiFileService.deleteFileFromCorpus(file.name)
+                );
+                // Use allSettled to ensure we attempt to delete all, even if some fail
+                const results = await Promise.allSettled(deletionPromises);
+                results.forEach((result, index) => {
+                    if (result.status === 'rejected') {
+                        log.error(`Failed to delete remote file ${appFilesToDelete[index].name}:`, result.reason);
+                    }
+                });
+            }
+
+            // 4. Purge the local database
             await dbService.purgeDatabase();
-            // Force a full reload to reset all application state
+            
+            // 5. Force a full reload to reset all application state
             window.location.reload();
         } catch (error) {
-            log.error('Failed to purge database', error);
-            setError('Failed to purge database. Check console for details.');
+            log.error('Failed to purge databases', error);
+            setError('Failed to purge databases. Check console for details.');
+            setIsLoading(false);
         }
     };
 
@@ -77,23 +104,34 @@ const FileManagementPanel: React.FC = () => {
         setError(null);
         try {
             const apiFiles = await geminiFileService.listGeminiFiles();
-            const allKnownLocalFiles = await dbService.getAll<GeminiFile>('files');
+            const localFiles = await dbService.getAll<GeminiFile>('files');
+
+            const apiFileNames = new Set(apiFiles.map(f => f.name));
+            const localFileNames = new Set(localFiles.map(f => f.name));
             
-            const combinedFilesMap = new Map<string, GeminiFile>();
-    
-            // Add all local files first
-            for (const localFile of allKnownLocalFiles) {
-                const processedLocal = await geminiFileService.processFileMetadata(localFile);
-                combinedFilesMap.set(processedLocal.name, processedLocal);
+            const displayFiles: GeminiFile[] = [];
+
+            // Process local files
+            for (const localFile of localFiles) {
+                const processedFile = await geminiFileService.processFileMetadata(localFile);
+                if (apiFileNames.has(processedFile.name)) {
+                    processedFile.status = 'synced';
+                } else {
+                    processedFile.status = 'local_only';
+                }
+                displayFiles.push(processedFile);
             }
-    
-            // Add or update with API files
+
+            // Process API-only files
             for (const apiFile of apiFiles) {
-                const processedApi = await geminiFileService.processFileMetadata(apiFile, combinedFilesMap.get(apiFile.name));
-                combinedFilesMap.set(processedApi.name, processedApi);
+                if (!localFileNames.has(apiFile.name)) {
+                    const processedFile = await geminiFileService.processFileMetadata(apiFile);
+                    processedFile.status = 'api_only';
+                    displayFiles.push(processedFile);
+                }
             }
             
-            setFiles(Array.from(combinedFilesMap.values()));
+            setFiles(displayFiles);
         } catch (err: any) {
             setError(err.message || 'Failed to load files.');
             setFiles([]);
@@ -245,7 +283,7 @@ const FileManagementPanel: React.FC = () => {
             setSelectedPurpose('general-global');
             if(fileInputRef.current) fileInputRef.current.value = "";
             setSelectedFiles(new Set());
-            await refreshSyncedFiles(); // Trigger a sync to upload the new file
+            await syncCorpus(); // Trigger a standard sync to upload the new file
             await loadFiles(); // Refresh the panel to show the new file
         } catch (err: any) {
             setUploadError(err.message || "Failed to register and sync file.");
@@ -269,26 +307,11 @@ const FileManagementPanel: React.FC = () => {
     
         try {
             const deletionPromises = filesToDelete.map(async (fileName) => {
-                const isLocal = fileName.startsWith('local/');
+                // Find metadata before deleting, as we need it for context removal
                 const fileMetadata = files.find(f => f.name === fileName);
-    
-                if (isLocal) {
-                    // It's a local-only file, just delete it from the DB
-                    await geminiFileService.deleteLocalFile(fileName);
-                } else {
-                    // It's an API-synced file
-                    try {
-                        await geminiFileService.deleteFileFromApiOnly(fileName);
-                    } catch (apiError: any) {
-                        // If the file is not found on the API, we can still proceed to delete it locally.
-                        if (!apiError.message.includes('404')) {
-                            throw apiError; // Re-throw if it's not a 'Not Found' error
-                        }
-                        log.info(`File ${fileName} not found on API, proceeding with local deletion.`);
-                    }
-                    // Always try to delete the local record as well, using the API name as the key
-                    await dbService.del('files', fileName);
-                }
+
+                // The service function now handles API errors (403, 404) gracefully
+                await geminiFileService.deleteFileFromCorpus(fileName);
     
                 // If it was a context document, remove it from the context
                 if (fileMetadata?.context && ['content', 'instrux', 'reference'].includes(fileMetadata.context)) {
@@ -303,7 +326,6 @@ const FileManagementPanel: React.FC = () => {
             setFilesToDelete([]);
             setSelectedFiles(new Set());
             await loadFiles(); 
-            await refreshSyncedFiles();
         }
     };
     
@@ -373,6 +395,21 @@ const FileManagementPanel: React.FC = () => {
                 );
                 lastGroup = currentGroup;
             }
+
+            let statusLabel;
+            switch (file.status) {
+                case 'local_only':
+                    statusLabel = <span className="text-xs text-blue-400">Local only. Force Resync to make available to Gemini.</span>;
+                    break;
+                case 'api_only':
+                    statusLabel = <span className="text-xs text-yellow-400">Stored on Gemini API until expiration.</span>;
+                    break;
+                case 'synced':
+                    statusLabel = <span className="text-xs text-green-400">Synced with Gemini API.</span>;
+                    break;
+                default:
+                    statusLabel = <span className="text-xs text-gray-500">Sync status unknown.</span>;
+            }
     
             rows.push(
                 <tr key={file.name} className={`hover:bg-gray-700/50 transition-colors ${selectedFiles.has(file.name) ? 'bg-gray-700/30' : ''} ${isProtected ? 'opacity-70' : ''}`}>
@@ -381,9 +418,7 @@ const FileManagementPanel: React.FC = () => {
                         <div className="text-sm font-medium text-gray-200">
                             {file.cachedDisplayName || file.displayName}
                         </div>
-                        <div className="text-xs text-gray-500" title={file.displayName}>
-                            API: {file.displayName.length > 30 ? `${file.displayName.substring(0, 30)}...` : file.displayName}
-                        </div>
+                        {statusLabel}
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{file.mimeType}</td>
                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300 capitalize">{file.context || '—'}</td>
@@ -398,7 +433,7 @@ const FileManagementPanel: React.FC = () => {
                                 <LockClosedIcon className="w-5 h-5 inline text-blue-400" />
                             </span>
                         ) : (
-                            <button onClick={() => handleDelete([file.name])} disabled={isLoading} className="text-red-400 hover:text-red-300 disabled:opacity-50" title="Delete file"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 inline"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg></button>
+                            <button onClick={() => handleDelete([file.name])} disabled={isLoading} className="text-red-400 hover:text-red-300 disabled:opacity-50" title="Delete file"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 inline"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg></button>
                         )}
                     </td>
                 </tr>
@@ -478,7 +513,7 @@ const FileManagementPanel: React.FC = () => {
                 <header className="flex items-center justify-between p-4 border-b border-gray-700">
                     <h3 className="text-lg font-bold text-gray-100">Managed Files ({files.length})</h3>
                     <div className="flex items-center gap-2">
-                        <button onClick={() => setIsPurgeConfirmModalOpen(true)} disabled={isLoading} className="px-3 py-1 bg-red-800 text-sm text-white rounded-md hover:bg-red-700 disabled:opacity-50 transition-colors">Purge Database</button>
+                        <button onClick={() => setIsPurgeConfirmModalOpen(true)} disabled={isLoading} className="px-3 py-1 bg-red-800 text-sm text-white rounded-md hover:bg-red-700 disabled:opacity-50 transition-colors">Purge Databases</button>
                         <button onClick={() => setIsForceResyncModalOpen(true)} disabled={isLoading} className="px-3 py-1 bg-yellow-600 text-sm text-white rounded-md hover:bg-yellow-500 disabled:opacity-50 transition-colors">Force Resync</button>
                         <button onClick={loadFiles} disabled={isLoading} className="px-3 py-1 bg-gray-700 text-sm text-gray-300 rounded-md hover:bg-gray-600 disabled:opacity-50 transition-colors">Refresh</button>
                     </div>
@@ -597,8 +632,8 @@ const FileManagementPanel: React.FC = () => {
                 isOpen={isPurgeConfirmModalOpen}
                 onClose={() => setIsPurgeConfirmModalOpen(false)}
                 onConfirm={handleConfirmPurge}
-                title="Confirm Database Purge"
-                message="Are you sure you want to permanently delete the entire local database? This will remove all cached files, context documents, and other application data. This action cannot be undone."
+                title="Confirm Databases Purge"
+                message="Are you sure you want to permanently delete all application-managed files from the Gemini API and then purge the entire local database? This will remove all cached files, context documents, and other application data. This action cannot be undone."
                 confirmButtonText="Purge Database"
                 confirmButtonClassName="bg-red-600 hover:bg-red-500 focus:ring-red-500"
             />

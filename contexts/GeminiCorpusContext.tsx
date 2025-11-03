@@ -100,16 +100,61 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
             }
 
             const filesToUpload = localFiles.filter(lf => {
-                if (isForced) return true; // In a force resync, upload everything
                 const remoteFile = remoteFilesMap.get(lf.internalName);
-                if (!remoteFile) return true; 
-                return new Date(lf.modified) > new Date(remoteFile.updateTime);
+                let shouldUpload = false;
+                let reason = '';
+
+                if (isForced) {
+                    shouldUpload = true;
+                    reason = 'Forced resync';
+                } else if (!remoteFile) {
+                    shouldUpload = true;
+                    reason = 'File does not exist on remote';
+                } else {
+                    const localDate = new Date(lf.modified);
+                    const remoteDate = new Date(remoteFile.updateTime);
+                    if (localDate.getTime() > remoteDate.getTime()) {
+                        shouldUpload = true;
+                        reason = `Local file is newer (${localDate.toISOString()} > ${remoteDate.toISOString()})`;
+                    } else {
+                        shouldUpload = false;
+                        reason = `Local file is not newer (${localDate.toISOString()} <= ${remoteDate.toISOString()})`;
+                    }
+                }
+
+                log.debug(`Sync check for "${lf.internalName}":`, {
+                    shouldUpload,
+                    reason,
+                    localFile: { name: lf.name, modified: new Date(lf.modified).toISOString() },
+                    remoteFile: remoteFile ? { name: remoteFile.name, displayName: remoteFile.displayName, updateTime: new Date(remoteFile.updateTime).toISOString() } : 'N/A',
+                });
+
+                return shouldUpload;
             });
             
             log.info(`${filesToUpload.length} files to upload.`);
 
             if (filesToUpload.length > 0) {
-                // Upload logic remains the same...
+                setSyncStatus(`uploading ${filesToUpload.length} files`);
+                const batches: FileContentRecord[][] = [];
+                for (let i = 0; i < filesToUpload.length; i += MAX_CONCURRENT_UPLOADS) {
+                    batches.push(filesToUpload.slice(i, i + MAX_CONCURRENT_UPLOADS));
+                }
+
+                for (let i = 0; i < batches.length; i++) {
+                    log.info(`Uploading batch ${i + 1}/${batches.length}...`);
+                    await Promise.all(batches[i].map(async (fileRecord) => {
+                        try {
+                            const file = new File([fileRecord.content], fileRecord.name, { type: fileRecord.mimeType });
+                            await geminiFileService.uploadFileToCorpus(file, fileRecord.internalName);
+                            log.info(`Successfully uploaded: ${fileRecord.internalName}`);
+                        } catch (uploadError) {
+                            log.error(`Failed to upload ${fileRecord.internalName}:`, uploadError);
+                            // Optional: Decide if one failure should halt the entire sync.
+                            // For now, we log the error and continue.
+                        }
+                    }));
+                }
             }
             
             setSyncStatus('verifying');
