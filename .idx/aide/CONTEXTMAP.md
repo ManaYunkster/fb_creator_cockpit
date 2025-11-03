@@ -1,6 +1,6 @@
 # Context Map (CONTEXTMAP)
 
-This document provides a map for the application's internal file naming and context management system. It serves as a reference for understanding how files are classified, named, and used by different parts of the application.
+This document provides a map for the application's internal file naming and context management system, as well as AI prompts. It serves as a reference for understanding how files are classified, named, and used by different parts of the application.
 
 ## Internal File Naming Convention
 
@@ -67,3 +67,24 @@ The mapping between a user's intent ("Purpose") and the resulting `[context]` an
 -   **Exported Constant:** `FILE_PURPOSES`
 
 This file is the single source of truth for this system. To add a new file type or context, you must add a new entry to the `FILE_PURPOSES` array in that file. The application's UI (e.g., the "Purpose" dropdown in the File Management panel) and logic are built dynamically from this configuration.
+
+## Prompt Templates
+
+The following table documents all prompt templates stored in `src/prompts`. These templates are dynamically loaded by the `promptService` and are used to construct the final prompts sent to the AI.
+
+| File Path                                 | Purpose                                                                | Used By (Tool)           | Used By (Function)                               |
+| ----------------------------------------- | ---------------------------------------------------------------------- | ------------------------ | ------------------------------------------------ |
+| `social_post_user.md`                     | User prompt for generating a social post from pasted text or a URL.    | Social Post Assistant    | `getSocialPostPromptWithFetchedContent`          |
+| `social_post_user_with_files.md`          | User prompt for generating a social post when the article is a file.   | Social Post Assistant    | `getSocialPostPromptWithFiles`                   |
+| `quote_finder_user.md`                    | User prompt for finding quotes or callbacks in a corpus.               | Quotes & Callbacks       | `getQuoteFinderPrompt`                           |
+| `quote_finder_regen_user.md`              | User prompt for regenerating a callback sentence based on feedback.    | Quotes & Callbacks       | `getQuoteFinderRegenPrompt`                      |
+| `social_post_system_substack.md`          | System instructions for generating Substack Notes.                     | Social Post Assistant    | `getSocialPostSystemInstruction`                 |
+| `social_post_system_linkedin_personal.md` | System instructions for generating posts for a personal LinkedIn feed. | Social Post Assistant    | `getSocialPostSystemInstruction`                 |
+| `social_post_system_linkedin_page.md`     | System instructions for generating posts for a company LinkedIn page.  | Social Post Assistant    | `getSocialPostSystemInstruction`                 |
+| `social_post_system_bluesky.md`           | System instructions for generating posts for BlueSky.                  | Social Post Assistant    | `getSocialPostSystemInstruction`                 |
+| `context_classification.md`               | System instructions for classifying and summarizing context documents. | (Internal)               | `AI_PROMPTS.CONTEXT_CLASSIFICATION`              |
+| `quote_finder_quote_mode_system.md`       | System instructions for finding quotes in "Quote Mode".                | Quotes & Callbacks       | `getQuoteFinderPrompt`                           |
+| `quote_finder_callback_mode_system.md`    | System instructions for finding callbacks in "Callback Mode".          | Quotes & Callbacks       | `getQuoteFinderPrompt`                           |
+| `quote_finder_callback_regen_system.md`   | System instructions for regenerating a callback sentence.              | Quotes & Callbacks       | `getQuoteFinderRegenPrompt`                      |
+| `chat_assistant_system.md`                | Base system instructions for the general-purpose Chat Assistant.       | Chat Assistant           | `AI_PROMPTS.CHAT_SYSTEM_BASE`                    |
+| `ocr.md`                                  | System instructions for performing OCR on an image.                    | (Internal)               | `AI_PROMPTS.OCR`                                 |

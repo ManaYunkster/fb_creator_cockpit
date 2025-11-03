@@ -75,16 +75,20 @@ This sub-directory contains all SVG icon components used throughout the UI. Each
 
 This directory contains all the raw markdown files for the AI prompts. They are loaded at runtime by the `promptService`.
 
--   **`chat_assistant_system.md`**: Base.
--   **`context_classification.md`**: System instructions for classifying context documents.
--   **`ocr.md`**: System instructions for performing OCR on images.
--   **`quote_finder_callback_mode_system.md`**: System instructions for QuoteFinder in callback mode.
--   **`quote_finder_callback_regen_system.md`**: System instructions for regenerating a callback.
--   **`quote_finder_quote_mode_system.md`**: System instructions for QuoteFinder in quote mode.
+-   **`chat_assistant_system.md`**: Base system instructions for the Chat Assistant.
+-   **`context_classification.md`**: System instructions for classifying and summarizing context documents.
+-   **`ocr.md`**: System instructions for performing OCR on an image.
+-   **`quote_finder_callback_mode_system.md`**: System instructions for QuoteFinder in "Callback Mode".
+-   **`quote_finder_callback_regen_system.md`**: System instructions for regenerating a callback sentence.
+-   **`quote_finder_quote_mode_system.md`**: System instructions for QuoteFinder in "Quote Mode".
+-   **`quote_finder_regen_user.md`**: User prompt for regenerating a callback in QuoteFinder.
+-   **`quote_finder_user.md`**: User prompt for the QuoteFinder tool.
 -   **`social_post_system_bluesky.md`**: System instructions for generating BlueSky posts.
--   **`social_post_system_linkedin_page.md`**: System instructions for generating LinkedIn Page posts.
--   **`social_post_system_linkedin_personal.md`**: System instructions for generating LinkedIn Personal posts.
+-   **`social_post_system_linkedin_page.md`**: System instructions for generating posts for a company LinkedIn page.
+-   **`social_post_system_linkedin_personal.md`**: System instructions for generating posts for a personal LinkedIn feed.
 -   **`social_post_system_substack.md`**: System instructions for generating Substack Notes.
+-   **`social_post_user.md`**: User prompt for the Social Post Assistant (from pasted text or URL).
+-   **`social_post_user_with_files.md`**: User prompt for the Social Post Assistant (when article is a file).
 
 ## Static Assets (`src`)
 

@@ -1,3 +1,9 @@
+## Version 1.7.0 (Build 20251103.1)
+
+*   **REFACTOR (Architecture):** Performed a major refactor of the AI prompt system. All user-facing prompt templates have been externalized into individual markdown files within a new `/src/prompts/` directory. This decouples prompt content from application logic, making them easier to manage and update.
+*   **REFACTOR (Services):** The `promptService` has been updated to dynamically load all prompt templates from their respective files on application startup, replacing the previous hardcoded string implementation.
+*   **DOCS (AIDE):** Updated `.idx/aide/CONTEXTMAP.md` to include a new "Prompt Templates" section. This table documents all prompt files, their purpose, which tool and function uses them, providing a clear reference for the new prompt architecture.
+
 ## Version 1.6.0 (Build 20251102.2)
 
 *   **FEAT (File Management):** Enhanced file status display in the File Management panel. Files are now explicitly categorized as 'Local only', 'API only (temporary)', or 'Synced' based on their presence in the local database and on the Gemini API. A 'Sync status unknown' fallback is also included.

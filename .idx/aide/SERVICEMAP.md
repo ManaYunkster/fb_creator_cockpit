@@ -55,10 +55,11 @@ This section provides a high-level summary of each key module's role in the data
 ### **`promptService.ts`**
 
 -   **File Path:** `services/promptService.ts`
--   **Core Responsibility:** Loads, caches, and provides on-demand access to all external AI prompt templates stored in the `src/prompts` directory.
+-   **Core Responsibility:** Loads, caches, and provides on-demand access to all external AI prompt templates. It decouples prompt content from application logic.
+-   **Data Flow:** On application startup, it reads a manifest from `prompts_config.ts` and uses `fetch()` to load the content of each corresponding `.md` file from `src/prompts/` into an in-memory `Map`.
 -   **Key Functions:**
-    -   `initialize()`: Called on application startup to pre-load all prompt files defined in `prompts_config.ts`.
-    -   `getPromptContent()`: Retrieves the content of a specific prompt by its ID, which is then used to construct the final request to the Gemini API.
+    -   `initPrompts()`: The initialization function that pre-loads all prompts into the cache.
+    -   `getPromptContent()`: Provides synchronous access to the cached content of a specific prompt by its ID.
 
 ## 2. Key Workflow Sequences
 
@@ -105,3 +106,16 @@ This flow outlines the "nuke and pave" process for restoring state from a backup
 3.  **Trigger Force Resync:** Upon successful import, the UI calls `GeminiCorpusContext.forceResync()`.
 4.  **Remote Purge ("Nuke"):** `forceResync()` first calls `geminiFileService.listGeminiFiles()` to get all remote files. It then iterates through this list and calls `geminiFileService.deleteFileFromCorpus()` for every file that is application-managed (i.e., has the `__cc_` prefix). This clears the remote slate of all app data without touching other user files.
 5.  **Standard Sync ("Pave"):** After the remote purge is complete, `forceResync()` calls the standard `syncCorpus()` function. Since the remote is now empty and the local DB is fully restored, the sync process (Workflow 1) will treat every file in the local DB as "missing" and re-upload the entire set, guaranteeing a perfectly mirrored state.
+
+---
+
+### **Workflow 4: Prompt Loading & Retrieval**
+
+This flow details how AI prompt templates are loaded and accessed.
+
+1.  **Initiation:** `App.tsx` mounts.
+2.  **Trigger:** A `useEffect` hook within `App.tsx` calls `promptService.initPrompts()`.
+3.  **Read Manifest:** The service reads the `prompts_config.ts` file, which contains an array of prompt objects, each with a unique `id` and `filePath`.
+4.  **Fetch & Cache:** It iterates through the manifest. For each prompt, it uses a dynamic `fetch()` call to read the raw text content of the specified markdown file from the `/src/prompts/` directory.
+5.  **Store in Memory:** The fetched content is stored in an in-memory `Map` within the `promptService`, keyed by the prompt's `id`.
+6.  **Synchronous Access:** When any other part of the application (e.g., `SocialPostAssistant`, `QuoteFinder`) needs a prompt, it calls `promptService.getPromptContent('prompt-id')`. The service synchronously returns the requested content from its cache.

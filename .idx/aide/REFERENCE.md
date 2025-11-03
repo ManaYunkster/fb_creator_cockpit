@@ -225,3 +225,17 @@ This document contains reference material for code, methods, functions, and cons
     2.  **`onclose`**: This event is fired if the database connection is closed unexpectedly (e.g., by the browser's resource management).
     -   **Mechanism:** In both handlers, the memoized `dbPromise` is set to `null`. This forces the next call to `initDB()` to re-establish a fresh connection from scratch, rather than returning the now-defunct one.
 -   **Outcome:** This pattern ensures that the application always works with a valid database connection, resolving the persistence issue and improving overall stability.
+
+---
+
+### 17. Dynamic Prompt Loading Architecture
+
+-   **File(s) Affected:** `services/promptService.ts`, `config/prompts_config.ts`, `src/prompts/`
+-   **Problem:** Hardcoding AI prompt templates as multiline strings directly within `promptService.ts` was inflexible. It made editing prompts cumbersome, required a full application rebuild for minor text changes, and tightly coupled prompt content with application logic.
+-   **Solution:** A data-driven, dynamic loading architecture was implemented to externalize all prompt content.
+    -   **Mechanism:**
+        1.  All prompt templates (both system instructions and user-facing prompts) are now individual `.md` files located in the `/src/prompts/` directory.
+        2.  The `prompts_config.ts` file acts as a manifest, defining a unique `id` and `filePath` for each prompt.
+        3.  On application startup, the `promptService.initPrompts()` function is called. It iterates through the manifest, uses `fetch()` to load the content of each markdown file, and stores it in an in-memory `Map` (`loadedPrompts`) keyed by the prompt's ID.
+        4.  The `promptService.getPromptContent(id)` function provides fast, synchronous access to the pre-loaded prompt content from anywhere in the application.
+    -   **Outcome:** This architecture decouples prompt management from application code. Prompts can now be edited and refined easily by modifying the markdown files directly. Adding new prompts is as simple as creating a new file and adding a corresponding entry to the configuration manifest, with no changes needed to the core service logic. This makes the system more modular, maintainable, and scalable.
