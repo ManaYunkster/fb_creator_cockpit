@@ -28,6 +28,7 @@ This section provides a high-level summary of each key module's role in the data
     -   `listGeminiFiles()`: Fetches the metadata for all files from the remote API.
     -   `uploadFile()`: Uploads a file's content to the API.
     -   `deleteFileFromCorpus()`: Deletes a file from the remote API and also removes its corresponding records from the local IndexedDB (`files` and `file_contents` stores).
+    -   `ensureRemoteFileExists()`: Provides "just-in-time" file validation. Before a file is used in a prompt, this function is called to check if it still exists on the remote API. If it has expired or is missing, this function automatically re-uploads the content from the local DB and returns the new, valid file object, preventing API errors.
     -   `registerLocalFile()`: The primary entry point for adding a new file to the system. It saves the file's metadata and content blob to IndexedDB via `dbService`, queuing it for the next sync cycle.
 
 ---

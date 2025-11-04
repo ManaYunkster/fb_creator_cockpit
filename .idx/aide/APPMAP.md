@@ -24,8 +24,12 @@ This directory contains all reusable React components that form the user interfa
 -   **`DatabaseRestorer.tsx`**: A tool that provides a UI for uploading a database backup file to perform a "wipe and replace" restoration of the application's state.
 -   **`DebugPanel.tsx`**: A developer-focused panel that displays the current in-memory state of the application for debugging.
 -   **`ExportPackager.tsx`**: The UI for exporting processed corpus data and the entire application database into different formats (CSV, JSON, ZIP).
--   **`FileManagementPanel.tsx`**: A comprehensive panel for users to view, upload, and delete files. It reflects the state of the local IndexedDB, which is the application's source of truth. The "Register File" action saves files locally, queuing them for the main sync process. It now explicitly categorizes files as 'Local only', 'API only (temporary)', or 'Synced' based on their presence in the local database and on the Gemini API, with a 'Sync status unknown' fallback. It also includes a "Purge Databases" button for clearing all application data from IndexedDB and the Gemini API.
+-   **`FileActions.tsx`**: A sub-component of the File Management panel that contains the header and the main action buttons (e.g., "Purge Databases", "Force Resync", "Refresh").
+-   **`FileInfoModal.tsx`**: A sub-component of the File Management panel that displays a modal with the full, raw metadata for a selected file.
+-   **`FileManagementPanel.tsx`**: A container component that orchestrates the file management UI. It handles all state management, data fetching, and user interactions, passing data and callbacks down to its specialized sub-components.
 -   **`FilePickerModal.tsx`**: A modal used within the Chat Assistant to select and attach existing files from the local file cache.
+-   **`FileUploadPanel.tsx`**: A sub-component of the File Management panel that provides the UI and logic for uploading a new file, including selecting the file, setting its display name, and assigning its purpose.
+-   **`FilesTable.tsx`**: A sub-component of the File Management panel that renders the main table of managed files, handling sorting, pagination, selection, and the display of individual file rows and actions.
 -   **`GlobalSettingsPanel.tsx`**: A modal panel for configuring global AI settings, such as the model, temperature, and safety settings.
 -   **`LoggingLevelSelector.tsx`**: A dropdown component in the footer for setting the application's console log level.
 -   **`PostInsights.tsx`**: A dashboard that displays analytics and a searchable table of all processed posts from the corpus.
@@ -54,7 +58,7 @@ This sub-directory contains all SVG icon components used throughout the UI. Each
 
 -   **`ContentContext.tsx`**: Manages the state for "context documents." It follows a DB-first approach, loading and classifying documents (using prompts from `promptService`), saving them to IndexedDB, and then filtering the displayed list based on the main Gemini sync status.
 -   **`DataContext.tsx`**: Manages the state of the main user-provided corpus data (posts, subscribers, etc.) after it has been processed. It uses IndexedDB as a persistent cache for fast startup.
--   **`GeminiCorpusContext.tsx`**: Orchestrates the DB-first file synchronization. On every application startup, it compares the state of the local IndexedDB (the source of truth) with the Gemini Files API, uploading missing files and deleting orphaned ones to ensure the remote API is always a mirror of the local database.
+-   **`GeminiCorpusContext.tsx`**: Orchestrates a robust, DB-first file synchronization process. On startup, it performs an integrity check to remove local database orphans. Its `syncCorpus` function compares the local and remote states, and when uploading a newer version of a file, it automatically deletes the old remote version to prevent duplicates. The `forceResync` function intelligently mirrors the local state to the remote by using the local `files` metadata table as the source of truth to identify and delete only true remote orphans.
 -   **`SettingsContext.tsx`**: Manages global, user-configurable settings, such as the selected AI model, temperature, and logging level.
 -   **`TestModeContext.tsx`**: Manages the state of the developer "Test Mode," including which specific regression tests are active.
 

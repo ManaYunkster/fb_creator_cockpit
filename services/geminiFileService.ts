@@ -28,8 +28,8 @@ const formatApiError = (error: any): string => {
         return error;
     }
     
-    // Check for GoogleGenAIError structure, which is often nested
-    const apiError = error?.error || error;
+    // Check for GoogleGenAIError structure, which can be nested
+    const apiError = error?.error?.error || error?.error || error;
 
     if (apiError?.message) {
         message = apiError.message;
@@ -64,12 +64,13 @@ const formatApiError = (error: any): string => {
 
 const isTransientError = (error: any): boolean => {
     // Check for 5xx server errors, rate limiting, or specific overload messages.
-    if (error?.error?.code) { // For GoogleGenAIError structure
-        const code = error.error.code;
+    const details = error?.error?.error || error?.error || error;
+    if (details?.code) {
+        const code = details.code;
         return code >= 500 || code === 429;
     }
-    if (error?.message) { // For generic errors
-        const message = error.message.toLowerCase();
+    if (details?.message) { // For generic errors
+        const message = details.message.toLowerCase();
         return message.includes('overloaded') || message.includes('unavailable') || message.includes('503');
     }
     return false;
@@ -465,47 +466,103 @@ export const deleteFileFromApiOnly = async (name: string): Promise<void> => {
     }
 };
 
-export const deleteLocalFile = async (internalName: string): Promise<void> => {
-    log.info('geminiFileService.deleteLocalFile', { internalName });
+export const deleteLocalFile = async (name: string, displayName: string): Promise<void> => {
+    log.info('geminiFileService.deleteLocalFile', { name, displayName });
     try {
-        // The name in the 'files' store could be `local/some-name` for unsynced files,
-        // or `files/some-name` for synced files.
-        const internalOnlyName = internalName.startsWith('local/') 
-            ? internalName.replace('local/', '')
-            : internalName;
-
-        await dbService.del('files', internalName); // Delete the main metadata record
-        await dbService.del('file_contents', internalOnlyName); // Delete the content
-        log.info(`Successfully deleted local file record for "${internalName}" and its content for "${internalOnlyName}".`);
+        await dbService.del('files', name);
+        await dbService.del('file_contents', displayName);
+        log.info(`Successfully deleted local file record for name "${name}" and content for displayName "${displayName}".`);
     } catch (error) {
         log.error('Error in geminiFileService.deleteLocalFile:', error);
-        throw new Error(`Failed to delete local file "${internalName}".`);
+        throw new Error(`Failed to delete local file "${displayName}".`);
     }
+};
+
+const findErrorDetails = (error: any): any => {
+    if (!error) return null;
+    if (typeof error.code === 'number' && typeof error.status === 'string') {
+        return error;
+    }
+    if (error.error) return findErrorDetails(error.error);
+    if (error.cause) return findErrorDetails(error.cause);
+    if (typeof error.message === 'string') {
+        try {
+            const parsed = JSON.parse(error.message);
+            return findErrorDetails(parsed);
+        } catch (e) {
+            // Not a JSON string, ignore
+        }
+    }
+    return error;
 };
 
 export const deleteFileFromCorpus = async (name: string): Promise<void> => {
     log.info('geminiService.deleteFileFromCorpus', { name });
     
-    // A 403 or 404 error during deletion is not a failure for our purposes,
-    // as the goal is to ensure the file is gone from both remote and local.
-    // We attempt the API deletion but proceed to local cleanup regardless of a "not found" or "permission" error.
+    if (!name.startsWith('local/')) {
+        try {
+            await ai.files.delete({ name });
+            log.info(`File "${name}" deleted successfully from API.`);
+        } catch (error: any) {
+            const details = findErrorDetails(error);
+            if (details?.code === 404 || details?.status === 'NOT_FOUND' || details?.code === 403 || details?.status === 'PERMISSION_DENIED') {
+                log.info(`File "${name}" not found or permission denied on remote. This is expected for orphans, proceeding with local cleanup.`);
+            } else {
+                log.error(`Unexpected error deleting remote file "${name}":`, error);
+                throw new Error(formatApiError(error));
+            }
+        }
+    } else {
+        log.info(`Skipping API deletion for local-only file: ${name}`);
+    }
+    
     try {
-        await ai.files.delete({ name });
-        log.info(`File "${name}" deleted successfully from API.`);
+        await dbService.del('files', name);
+        log.info(`File record for "${name}" deleted from local 'files' store.`);
+
+        if (name.startsWith('local/')) {
+            const internalOnlyName = name.replace('local/', '');
+            await dbService.del('file_contents', internalOnlyName);
+            log.info(`Also deleted content for local file "${internalOnlyName}" from 'file_contents' store.`);
+        }
+    } catch (dbError) {
+        log.error(`Error during local DB cleanup for "${name}".`, dbError);
+    }
+};
+
+
+export const ensureRemoteFileExists = async (file: GeminiFile): Promise<GeminiFile> => {
+    log.info(`Verifying remote existence of file: ${file.displayName} (name: ${file.name})`);
+    try {
+        // Attempt to fetch the file metadata from the API.
+        const remoteFile = await ai.files.get({ name: file.name });
+        log.info(`File "${file.displayName}" confirmed to exist on remote.`);
+        return remoteFile as GeminiFile;
     } catch (error: any) {
-        const apiError = error?.error || error;
-        if (apiError?.code === 404 || apiError?.status === 'NOT_FOUND' || apiError?.code === 403 || apiError?.status === 'PERMISSION_DENIED') {
-            log.info(`File "${name}" not found or permission denied on remote. Proceeding with local cleanup.`);
+        const details = findErrorDetails(error);
+        // If the file is not found, it has likely expired or been deleted. We need to re-upload it.
+        if (details?.code === 404 || details?.status === 'NOT_FOUND' || details?.code === 403 || details?.status === 'PERMISSION_DENIED') {
+            log.info(`File "${file.displayName}" (name: ${file.name}) not found on remote. Attempting to re-upload from local content.`);
+
+            // Retrieve the local content from our database.
+            const fileContentRecord = await dbService.get<FileContentRecord>('file_contents', file.displayName);
+            if (!fileContentRecord || !fileContentRecord.content) {
+                log.error(`Cannot re-upload "${file.displayName}" because its content is missing from the local database.`);
+                throw new Error(`Local content for ${file.displayName} not found. Cannot re-upload.`);
+            }
+
+            // Re-create the File object and re-upload it.
+            const fileToUpload = new File([fileContentRecord.content], fileContentRecord.name, { type: fileContentRecord.mimeType });
+            log.info(`Re-uploading content for "${file.displayName}"...`);
+            const newFile = await uploadFileToCorpus(fileToUpload, file.displayName);
+            log.info(`Successfully re-uploaded "${file.displayName}" as new file: ${newFile.name}`);
+            return newFile;
         } else {
             // For any other unexpected error, log it and re-throw.
-            log.error(`Error in geminiService.deleteFileFromCorpus for ${name}:`, error);
+            log.error(`An unexpected error occurred while verifying file "${file.displayName}":`, error);
             throw new Error(formatApiError(error));
         }
     }
-    
-    // Always attempt to remove from our local cache
-    await dbService.del('files', name);
-    log.info(`File record for "${name}" also deleted from local DB.`);
 };
 
 export const generateContent = async (

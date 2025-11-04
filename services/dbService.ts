@@ -220,57 +220,61 @@ export const sanitizeFileContentStore = async (): Promise<void> => {
         const filesStore = transaction.objectStore('files');
         let deletedCount = 0;
 
-        transaction.oncomplete = () => {
-            if (deletedCount > 0) {
-                log.info(`dbService: File content sanitization complete. Removed ${deletedCount} invalid record(s).`);
-            }
-            resolve();
-        };
-        transaction.onerror = () => {
-            log.error('File content sanitization transaction failed:', transaction.error);
-            reject(transaction.error);
-        };
-
-        const cursorRequest = fileContentsStore.openCursor();
-        cursorRequest.onerror = () => reject('Failed to open cursor on file_contents store.');
+        // Step 1: Gather all valid displayNames from the 'files' metadata store.
+        const filesRequest = filesStore.getAll();
         
-        cursorRequest.onsuccess = (event) => {
-            const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
-            if (cursor) {
-                const record = cursor.value;
-                const internalName = cursor.primaryKey as string;
-                let shouldDelete = false;
-                let reason = '';
+        filesRequest.onerror = () => reject('Failed to read from files store for sanitization.');
+        filesRequest.onsuccess = () => {
+            const validDisplayNames = new Set(filesRequest.result.map(file => file.displayName));
+            log.debug(`Sanitization check: Found ${validDisplayNames.size} valid metadata records.`);
 
-                // Condition 1: Check for null, undefined, or a Blob with size 0.
-                if (!record.content || (record.content instanceof Blob && record.content.size === 0)) {
-                    shouldDelete = true;
-                    reason = 'empty content blob';
+            transaction.oncomplete = () => {
+                if (deletedCount > 0) {
+                    log.info(`dbService: File content sanitization complete. Removed ${deletedCount} invalid/orphaned record(s).`);
                 }
-                // Condition 2: Check for invalid or missing mimeType.
-                else if (!record.mimeType || record.mimeType === 'application/octet-stream') {
-                    shouldDelete = true;
-                    reason = `invalid mimeType ('${record.mimeType}')`;
-                }
+                resolve();
+            };
+            transaction.onerror = () => {
+                log.error('File content sanitization transaction failed:', transaction.error);
+                reject(transaction.error);
+            };
 
-                if (shouldDelete) {
-                    log.info(`Sanitizing: Deleting "${internalName}" due to: ${reason}.`);
-                    
-                    // Delete the content record itself
-                    cursor.delete(); 
-                    
-                    // Also delete the corresponding metadata record in the 'files' store if it exists
-                    filesStore.delete(internalName).onsuccess = () => {
-                        log.debug(`- Also deleted corresponding 'files' metadata for ${internalName}`);
-                    };
-                    filesStore.delete(`local/${internalName}`).onsuccess = () => {
-                         log.debug(`- Also deleted corresponding 'local/files' metadata for ${internalName}`);
-                    };;
-                    
-                    deletedCount++;
+            // Step 2: Iterate through the 'file_contents' store and check for validity.
+            const cursorRequest = fileContentsStore.openCursor();
+            cursorRequest.onerror = () => reject('Failed to open cursor on file_contents store.');
+            
+            cursorRequest.onsuccess = (event) => {
+                const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+                if (cursor) {
+                    const record = cursor.value;
+                    const internalName = cursor.primaryKey as string;
+                    let shouldDelete = false;
+                    let reason = '';
+
+                    // Condition 1: Check for orphaned content (no corresponding metadata).
+                    if (!validDisplayNames.has(internalName)) {
+                        shouldDelete = true;
+                        reason = 'orphaned content (no metadata entry)';
+                    }
+                    // Condition 2: Check for null, undefined, or a Blob with size 0.
+                    else if (!record.content || (record.content instanceof Blob && record.content.size === 0)) {
+                        shouldDelete = true;
+                        reason = 'empty content blob';
+                    }
+                    // Condition 3: Check for invalid or missing mimeType.
+                    else if (!record.mimeType || record.mimeType === 'application/octet-stream') {
+                        shouldDelete = true;
+                        reason = `invalid mimeType ('${record.mimeType}')`;
+                    }
+
+                    if (shouldDelete) {
+                        log.info(`Sanitizing: Deleting "${internalName}" from file_contents due to: ${reason}.`);
+                        cursor.delete();
+                        deletedCount++;
+                    }
+                    cursor.continue();
                 }
-                cursor.continue();
-            }
+            };
         };
     });
 };
@@ -310,6 +314,9 @@ const base64ToBlob = (base64: string, mimeType: string): Blob => {
  */
 export const exportDB = async (): Promise<Blob> => {
     log.info('dbService: Exporting database...');
+    // Ensure the database is clean before exporting
+    await sanitizeFileContentStore();
+
     const db = await initDB();
     const exportObject: { [key: string]: any } = {
         __db_export_version__: DB_EXPORT_VERSION,

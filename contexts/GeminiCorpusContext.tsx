@@ -73,7 +73,14 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
                 log.info(`Sanitized ${staleCount} stale local file metadata records.`);
             }
 
-            const localFiles: FileContentRecord[] = await dbService.getAll('file_contents');
+            const allLocalContent: FileContentRecord[] = await dbService.getAll('file_contents');
+            const allLocalMetadata = await dbService.getAll<GeminiFile>('files');
+            const localMetadataDisplayNames = new Set(allLocalMetadata.map(m => m.displayName));
+
+            // Use the metadata store ('files') as the source of truth for what should exist.
+            // Filter the content store to only include files that have a corresponding metadata entry.
+            const localFiles = allLocalContent.filter(lc => localMetadataDisplayNames.has(lc.internalName));
+            
             const rawRemoteFiles = await geminiFileService.listGeminiFiles();
             const cachedFiles = await dbService.getAll<GeminiFile>('files');
             const cachedFilesMap = new Map(cachedFiles.map(f => [f.name, f]));
@@ -87,40 +94,57 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
             setSyncStatus('analyzing-diff');
 
             if (isForced) {
-                const filesToDelete = processedRemoteFiles.filter(rf => rf.displayName?.startsWith('__cc_'));
+                // The 'files' metadata table is the source of truth for what the application is managing.
+                const localFileDisplayNames = new Set(allLocalMetadata.map(m => m.displayName));
+                const remoteAppFiles = processedRemoteFiles.filter(rf => rf.displayName?.startsWith('__cc_'));
+                
+                // A remote file is an orphan if it's not in our definitive list of managed files.
+                const filesToDelete = remoteAppFiles.filter(rf => !localFileDisplayNames.has(rf.displayName));
+
                 if (filesToDelete.length > 0) {
-                    log.info(`Force Resync: Deleting ${filesToDelete.length} application-managed files from remote.`);
-                    log.debug('Files to delete:', filesToDelete.map(f => ({ name: f.name, displayName: f.displayName })))
-                    setSyncStatus(`deleting ${filesToDelete.length} files`);
+                    log.info(`Force Resync: Found ${filesToDelete.length} orphaned application-managed files on remote to delete.`);
+                    log.debug('Orphaned files to delete:', filesToDelete.map(f => ({ name: f.name, displayName: f.displayName })))
+                    setSyncStatus(`deleting ${filesToDelete.length} orphaned files`);
                     await Promise.all(filesToDelete.map(f => geminiFileService.deleteFileFromCorpus(f.name)));
-                    log.info('Force Resync: Finished deleting remote files.');
+                    log.info('Force Resync: Finished deleting remote orphaned files.');
                 } else {
-                    log.info('Force Resync: No application-managed files found on remote to delete.');
+                    log.info('Force Resync: No orphaned application-managed files found on remote to delete.');
                 }
             }
 
-            const filesToUpload = localFiles.filter(lf => {
+            interface UploadTask {
+                fileRecord: FileContentRecord;
+                oldRemoteFileToDelete?: GeminiFile;
+            }
+
+            const uploadTasks: UploadTask[] = [];
+            localFiles.forEach(lf => {
                 const remoteFile = remoteFilesMap.get(lf.internalName);
                 let shouldUpload = false;
                 let reason = '';
+                let oldRemoteFileToDelete: GeminiFile | undefined = undefined;
 
                 if (isForced) {
                     shouldUpload = true;
                     reason = 'Forced resync';
-                } else if (!remoteFile) {
-                    shouldUpload = true;
-                    reason = 'File does not exist on remote';
-                } else {
-                    const localDate = new Date(lf.modified);
-                    const remoteDate = new Date(remoteFile.updateTime);
-                    if (localDate.getTime() > remoteDate.getTime()) {
-                        shouldUpload = true;
-                        reason = `Local file is newer (${localDate.toISOString()} > ${remoteDate.toISOString()})`;
-                    } else {
-                        shouldUpload = false;
-                        reason = `Local file is not newer (${localDate.toISOString()} <= ${remoteDate.toISOString()})`;
+                    if (remoteFile) {
+                        oldRemoteFileToDelete = remoteFile;
                     }
-                }
+                                } else if (!remoteFile) {
+                                    shouldUpload = true;
+                                    reason = 'File is new or missing from remote';
+                                } else {
+                                    const localDate = new Date(lf.modified);
+                                    const remoteDate = new Date(remoteFile.updateTime);
+                                    if (localDate.getTime() > remoteDate.getTime()) {
+                                        shouldUpload = true;
+                                        reason = `Local file is newer (${localDate.toISOString()} > ${remoteDate.toISOString()})`;
+                                        oldRemoteFileToDelete = remoteFile;
+                                    } else {
+                                        shouldUpload = false;
+                                        reason = `Local file is not newer (${localDate.toISOString()} <= ${remoteDate.toISOString()})`;
+                                    }
+                                }
 
                 log.debug(`Sync check for "${lf.internalName}":`, {
                     shouldUpload,
@@ -129,27 +153,36 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
                     remoteFile: remoteFile ? { name: remoteFile.name, displayName: remoteFile.displayName, updateTime: new Date(remoteFile.updateTime).toISOString() } : 'N/A',
                 });
 
-                return shouldUpload;
+                if (shouldUpload) {
+                    uploadTasks.push({ fileRecord: lf, oldRemoteFileToDelete });
+                }
             });
             
-            log.info(`${filesToUpload.length} files to upload.`);
+            log.info(`${uploadTasks.length} files to upload.`);
 
-            if (filesToUpload.length > 0) {
-                setSyncStatus(`uploading ${filesToUpload.length} files`);
-                const batches: FileContentRecord[][] = [];
-                for (let i = 0; i < filesToUpload.length; i += MAX_CONCURRENT_UPLOADS) {
-                    batches.push(filesToUpload.slice(i, i + MAX_CONCURRENT_UPLOADS));
+            if (uploadTasks.length > 0) {
+                setSyncStatus(`uploading ${uploadTasks.length} files`);
+                const batches: UploadTask[][] = [];
+                for (let i = 0; i < uploadTasks.length; i += MAX_CONCURRENT_UPLOADS) {
+                    batches.push(uploadTasks.slice(i, i + MAX_CONCURRENT_UPLOADS));
                 }
 
                 for (let i = 0; i < batches.length; i++) {
                     log.info(`Uploading batch ${i + 1}/${batches.length}...`);
-                    await Promise.all(batches[i].map(async (fileRecord) => {
+                    await Promise.all(batches[i].map(async (task) => {
+                        const { fileRecord, oldRemoteFileToDelete } = task;
                         try {
                             const file = new File([fileRecord.content], fileRecord.name, { type: fileRecord.mimeType });
                             await geminiFileService.uploadFileToCorpus(file, fileRecord.internalName);
                             log.info(`Successfully uploaded: ${fileRecord.internalName}`);
+
+                            if (oldRemoteFileToDelete) {
+                                log.info(`Deleting old remote version of ${fileRecord.internalName} (name: ${oldRemoteFileToDelete.name})`);
+                                await geminiFileService.deleteFileFromCorpus(oldRemoteFileToDelete.name);
+                                log.info(`Successfully deleted old remote version of ${fileRecord.internalName}`);
+                            }
                         } catch (uploadError) {
-                            log.error(`Failed to upload ${fileRecord.internalName}:`, uploadError);
+                            log.error(`Failed to upload and process ${fileRecord.internalName}:`, uploadError);
                             // Optional: Decide if one failure should halt the entire sync.
                             // For now, we log the error and continue.
                         }

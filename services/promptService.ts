@@ -136,10 +136,17 @@ export const AI_PROMPTS = {
             .replace('{{inspirationSection}}', inspirationSection)
             .replace('{{feedbackSection}}', feedbackSection);
 
+        // Verify all context files exist on the remote server before attaching them.
+        log.info('Verifying remote existence of all context files before generating prompt...');
+        const verifiedContextFiles = await Promise.all(
+            contextFiles.map(file => geminiFileService.ensureRemoteFileExists(file))
+        );
+        log.info('All context files verified successfully.');
+
         const articleFile = new File([postHtmlContent], "article.html", { type: 'text/html' });
         const uploadedArticleFile = await geminiFileService.uploadFileToApiOnly(articleFile, { displayName: "article.html" });
 
-        return { systemInstruction, userPrompt, files: [...contextFiles, uploadedArticleFile] };
+        return { systemInstruction, userPrompt, files: [...verifiedContextFiles, uploadedArticleFile] };
     },
     getQuoteFinderPrompt: (mode: 'quote' | 'callback', workingArticleContent: string, brandContext?: string) => {
         const systemInstructionTemplate = getPromptContent(mode === 'quote' ? SYSTEM_INSTRUCTIONS.QUOTE_FINDER_SYSTEM.id : SYSTEM_INSTRUCTIONS.QUOTE_FINDER_CALLBACK_SYSTEM.id);

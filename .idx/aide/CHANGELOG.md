@@ -12,6 +12,19 @@
 
 # Changelog
 
+## Version 1.8.0 (Build 20251104.1)
+
+*   **REFACTOR (File Management):** Performed a major refactoring of the `FileManagementPanel` component. The monolithic component was broken down into smaller, more manageable sub-components (`FileUploadPanel`, `FilesTable`, `FileInfoModal`, `FileActions`), improving code organization and maintainability.
+*   **FIX (File Sync):** Overhauled the file synchronization and deletion logic to be more robust and intelligent, resolving several critical bugs related to orphaned files.
+    *   The `forceResync` logic now correctly uses the local `files` metadata table as the source of truth, preventing the accidental deletion of valid context files that don't have local content on a new device.
+    *   The system now performs an "upload-and-replace" strategy, automatically deleting the old remote version of a file after a newer local version is uploaded, preventing the accumulation of duplicates on the server.
+    *   The file deletion process now correctly handles local-only orphans, removing them from the local database without making a failing API call.
+    *   Error handling for API deletion calls was made more robust to correctly identify and ignore 403/404 errors for remote orphans, regardless of how the error object is structured.
+*   **FEAT (Data Integrity):** Implemented a multi-layered data sanitization and self-healing system.
+    *   A new `ensureRemoteFileExists` function was added to `geminiFileService` and integrated into `promptService`. This provides a "just-in-time" guarantee that any file attached to a prompt is valid on the remote API, automatically re-uploading it if it has expired or is missing.
+    *   The `dbService` now automatically purges all orphaned local content records (content without metadata) on application startup, before database exports, and whenever the File Management panel is loaded, ensuring a consistently clean local state.
+*   **DOCS (AIDE):** Updated all internal AIDE documentation (`APPMAP.md`, `SERVICEMAP.md`, `REFERENCE.md`) to reflect all architectural changes, new functions, and the new "File Synchronization Philosophy." Also clarified the pathing convention rule in `GEMINI.md`.
+
 ## Version 1.5.0 (Build 20251102.1)
 
 *   **Feature:** Added a "Purge Database" button to the Prompt Inspector modal. This provides a developer utility to clear all application data from IndexedDB.

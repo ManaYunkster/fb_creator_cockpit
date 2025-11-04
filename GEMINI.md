@@ -17,7 +17,7 @@ An internal changelog is maintained at `/.idx/aide/CHANGELOG.md`. This file will
   - `log.prompt()`: Specifically for logging the final, fully-constructed prompts sent to the AI.
 - **Comment Hygiene:** Old, irrelevant comments will be removed. New comments will be added to explain the *why* behind complex or non-obvious code, not just the *what*.
 - **Maintain tool_config.ts:** When adding or modifying new functions, they will be cataloged in tool_config.ts which contains a full list of each tool, metadata about the tool, what data is required, index to the React component, and wheether it's enabled.
-- **Relative Paths in Docs:** All file paths referenced in documentation (e.g., `APPMAP.md`, `SERVICEMAP.md`) must be relative to the project root (e.g., `src/components/MyComponent.tsx`) and should not include a leading slash.
+- **Relative Paths in Docs:** All file paths referenced in documentation (e.g., `APPMAP.md`, `SERVICEMAP.md`) must be relative to the project root (e.g., `src/components/MyComponent.tsx`) and should not include a leading slash. This ensures consistency across the project's documentation.
 
 ## 4. Known Issues (Do Not Fix)
 
