@@ -14,6 +14,7 @@ import ChevronDownIcon from './icons/ChevronDownIcon';
 // FIX: Imported the shared CallbackResult type.
 import { CallbackResult, GeminiFile } from '../types';
 import { VENUE_UTM_CONFIG } from '../config/social_post_config';
+import { generateProfileTooltip } from '../services/uiFormatService';
 
 type Mode = 'quote' | 'callback';
 type InputMode = 'url' | 'text' | 'file';
@@ -681,6 +682,7 @@ const QuoteFinder: React.FC = () => {
                                     ? 'bg-blue-600 border-blue-500 text-white'
                                     : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'
                                 }`}
+                                title={generateProfileTooltip(profile.name, relevantDocs, geminiContextFilesMap)}
                             >
                                 {profile.name} ({profile.count})
                             </button>

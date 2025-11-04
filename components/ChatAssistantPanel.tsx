@@ -19,7 +19,7 @@ import RefreshIcon from './icons/RefreshIcon';
 import ClipboardIcon from './icons/ClipboardIcon';
 import StopIcon from './icons/StopIcon';
 import PaperclipIcon from './icons/PaperclipIcon';
-
+import { generateProfileTooltip, formatCorpusPillName, generateCorpusTooltip } from '../services/uiFormatService';
 
 interface Message {
   role: 'user' | 'model';
@@ -44,7 +44,7 @@ const ChatAssistantPanel: React.FC = () => {
     const [copyStatus, setCopyStatus] = useState<Record<number, boolean>>({});
 
     const { modelConfig } = useContext(SettingsContext);
-    const { syncedFiles } = useContext(geminiCorpusContext);
+    const { contextFiles } = useContext(geminiCorpusContext);
     const { contextDocuments } = useContext(ContentContext);
     const chatRef = useRef<Chat | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -52,13 +52,13 @@ const ChatAssistantPanel: React.FC = () => {
 
     const corpusFiles = useMemo(() => {
         const corpus = new Map<string, GeminiFile>();
-        for (const [key, file] of syncedFiles.entries()) {
+        for (const [key, file] of contextFiles.entries()) {
             if (file.context === 'corpus') {
                 corpus.set(key, file);
             }
         }
         return corpus;
-    }, [syncedFiles]);
+    }, [contextFiles]);
     
     useEffect(() => {
         // If a chat session exists and the context changes, show a warning.
@@ -111,38 +111,6 @@ const ChatAssistantPanel: React.FC = () => {
         });
     };
 
-    const generateProfileTooltip = (profileName: string): string => {
-        const docsInProfile = relevantDocs.filter(doc => doc.profile === profileName);
-        if (docsInProfile.length === 0) {
-            return `Profile: ${profileName}\nNo synced files found for this profile.`;
-        }
-
-        const fileDetails = docsInProfile.map(doc => {
-            const geminiFile = syncedFiles.get(doc.id);
-            if (geminiFile) {
-                return `- ${geminiFile.cachedDisplayName || geminiFile.displayName}\n  (API ID: ${geminiFile.name})`;
-            }
-            return `- ${doc.id} (Not synced)`;
-        }).join('\n');
-
-        return `Profile: ${profileName}\n\nFiles:\n${fileDetails}`;
-    };
-    
-    const formatCorpusPillName = (fileName: string): string => {
-        const extensionMatch = fileName.match(/\.(json|csv)$/);
-        const extension = extensionMatch ? extensionMatch[1].toUpperCase() : '';
-
-        const baseName = fileName.replace(/\.(json|csv)$/, '');
-
-        const formattedName = baseName
-            .replace(/_/g, ' ')
-            .split(' ')
-            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-            .join(' ');
-        
-        return `${formattedName} (${extension})`;
-    };
-
     const handleStop = () => {
         log.info('ChatAssistantPanel: Stop generation requested by user.');
         isGeneratingRef.current = false;
@@ -193,7 +161,7 @@ const ChatAssistantPanel: React.FC = () => {
                 });
 
                 const contextDocIds = new Set(documentsForPrompt.map(d => d.id));
-                const geminiFilesForPrompt = Array.from(syncedFiles.values()) as GeminiFile[];
+                const geminiFilesForPrompt = Array.from(contextFiles.values()) as GeminiFile[];
                 const filteredGeminiFilesForPrompt = geminiFilesForPrompt.filter((f: GeminiFile) => contextDocIds.has(f.displayName as string));
                 
                 // Add active corpus files
@@ -438,7 +406,7 @@ const ChatAssistantPanel: React.FC = () => {
                                 <button
                                     key={profile.name}
                                     onClick={() => handleProfileToggle(profile.name)}
-                                    title={generateProfileTooltip(profile.name)}
+                                    title={generateProfileTooltip(profile.name, relevantDocs, contextFiles)}
                                     className={`px-2 py-1 text-xs font-semibold rounded-full border transition-all duration-200 ${
                                         activeProfiles.has(profile.name)
                                         ? 'bg-blue-600 border-blue-500 text-white'
@@ -455,13 +423,11 @@ const ChatAssistantPanel: React.FC = () => {
                                 .filter((fileName: string) => fileName.endsWith('.json') || fileName.endsWith('.csv'))
                                 .map((fileName: string) => {
                                     const file = corpusFiles.get(fileName);
-                                    if (!file) return null;
-                                    const tooltip = `File: ${file.cachedDisplayName || 'N/A'}\nAPI ID: ${file.name}`;
                                     return (
                                         <button
                                             key={fileName}
                                             onClick={() => handleCorpusPillToggle(fileName)}
-                                            title={tooltip}
+                                            title={generateCorpusTooltip(file)}
                                             className={`px-2 py-1 text-xs font-semibold rounded-full border transition-all duration-200 ${
                                                 activeCorpusPills.has(fileName)
                                                 ? 'bg-teal-600 border-teal-500 text-white'
@@ -497,3 +463,4 @@ const ChatAssistantPanel: React.FC = () => {
 };
 
 export default ChatAssistantPanel;
+

@@ -18,6 +18,7 @@ const CockpitButton: React.FC<CockpitButtonProps> = ({ title, description, icon,
       onClick={onClick}
       disabled={disabled}
       className={`${baseClasses} ${disabled ? disabledClasses : enabledClasses}`}
+      title={description}
     >
       <div className={`mb-4 text-blue-400 ${!disabled && "group-hover:text-blue-300"} transition-colors`}>
         {icon}

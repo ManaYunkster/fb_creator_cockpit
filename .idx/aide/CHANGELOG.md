@@ -12,6 +12,39 @@
 
 # Changelog
 
+## Version 1.9.0 (Build 20251104.9)
+
+*   **FIX (Social Post Assistant):** Resolved TypeScript errors in `SocialPostAssistant.tsx` by adding a type guard to the `filter` operation on `geminiContextFiles.values()`, ensuring correct type inference for `GeminiFile` objects.
+
+## Version 1.9.0 (Build 20251104.8)
+
+*   **REFACTOR (UI):** Centralized all tooltip and pill name formatting logic into a new `uiFormatService`. This removes redundant code from `ChatAssistantPanel`, `QuoteFinder`, and `ContextProfiles`, ensuring a consistent look and feel for context and corpus pills across the entire application.
+*   **FIX (Build):** Restored the missing `export default` statement in `ChatAssistantPanel.tsx`, resolving a critical build error that prevented the application from compiling.
+
+## Version 1.9.0 (Build 20251104.7)
+
+*   **FIX (Chat Assistant):** Resolved a runtime error in `ChatAssistantPanel.tsx` by updating the component to use the `contextFiles` property from `geminiCorpusContext`, aligning it with the recent context API changes and preventing a crash on load.
+
+## Version 1.9.0 (Build 20251104.6)
+
+*   **FEAT (UI/UX):** Implemented a `stripPrefix` helper function in `ContextProfiles.tsx` and `QuoteFinder.tsx` to remove the `__cc_` prefix from document IDs displayed in the context pill tooltips, improving readability and user experience.
+
+## Version 1.9.0 (Build 20251104.5)
+
+*   **FEAT (UI/UX):** Implemented a `stripPrefix` helper function in `FilesTable.tsx` to remove the `__cc_` prefix from displayed file names, improving readability and user experience in the file management table.
+
+## Version 1.9.0 (Build 20251104.4)
+
+*   **FIX (Social Post Assistant):** Resolved critical TypeScript errors by properly typing the `geminiCorpusContext` and ensuring consistent use of the `contextFiles` property across all components. This corrects type inference issues that were causing build failures.
+
+## Version 1.9.0 (Build 20251104.3)
+
+*   **FIX (Social Post Assistant):** Resolved TypeScript errors in `SocialPostAssistant.tsx` by explicitly importing `ImageInspiration` and `TextInspiration` types and correcting the reference to `geminiCorpusContext.contextFiles`.
+
+## Version 1.9.0 (Build 20251104.2)
+
+*   **REFACTOR (Social Post Assistant):** Performed a major refactoring of the `SocialPostAssistant` component. The monolithic component was broken down into smaller, more manageable sub-components (`UrlInput`, `InspirationsInput`, `PlatformSettings`, `UtmPanel`, `ContextProfiles`, `GeneratedPostCard`, `RegenerationModal`, `MaximizedEditorModal`), improving code organization, maintainability, and readability.
+
 ## Version 1.8.0 (Build 20251104.1)
 
 *   **REFACTOR (File Management):** Performed a major refactoring of the `FileManagementPanel` component. The monolithic component was broken down into smaller, more manageable sub-components (`FileUploadPanel`, `FilesTable`, `FileInfoModal`, `FileActions`), improving code organization and maintainability.

@@ -11,7 +11,7 @@ const MAX_CONCURRENT_UPLOADS = 5;
 
 export const geminiCorpusContext = createContext<GeminiCorpusContextType>({
     status: 'EMPTY',
-    syncedFiles: new Map(),
+    contextFiles: new Map(),
     syncCorpus: async () => {},
     forceResync: async () => {},
     syncStatus: 'awaiting-sync',
@@ -24,14 +24,14 @@ interface GeminiCorpusProviderProps {
 export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ children }) => {
     const { isCorpusReady } = useContext(DataContext);
     const [status, setStatus] = useState<CorpusSyncStatus>('EMPTY');
-    const [syncedFiles, setSyncedFiles] = useState<Map<string, GeminiFile>>(new Map());
+    const [contextFiles, setContextFiles] = useState<Map<string, GeminiFile>>(new Map());
     const [syncStatus, setSyncStatus] = useState('awaiting-sync');
     const isSyncing = useRef(false);
 
     const loadFromCache = useCallback(async () => {
         log.info('GeminiCorpusContext: Loading files from cache.');
         const files = await geminiFileService.loadFilesFromCache();
-        setSyncedFiles(files);
+        setContextFiles(files);
         if (files.size > 0) {
             setStatus('READY');
             log.info(`GeminiCorpusContext: Loaded ${files.size} files from cache. Status set to READY.`);
@@ -199,7 +199,7 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
             ));
             const finalFilesMap = new Map(finalProcessedFiles.map(f => [f.displayName, f]));
             
-            setSyncedFiles(finalFilesMap);
+            setContextFiles(finalFilesMap);
             await geminiFileService.cacheFiles(finalFilesMap);
             setStatus('READY');
             setSyncStatus('sync-complete');
@@ -233,11 +233,11 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
     
     const value = useMemo(() => ({
         status,
-        syncedFiles,
+        contextFiles,
         syncCorpus: () => syncCorpus(false),
         forceResync,
         syncStatus
-    }), [status, syncedFiles, syncCorpus, forceResync, syncStatus]);
+    }), [status, contextFiles, syncCorpus, forceResync, syncStatus]);
 
     return (
         <geminiCorpusContext.Provider value={value}>

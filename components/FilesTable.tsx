@@ -21,6 +21,11 @@ const formatDate = (dateString?: string) => {
     return new Date(dateString).toLocaleString();
 };
 
+const stripPrefix = (name: string) => {
+    const prefixRegex = /^__cc_[a-z]+_[a-z]+_/; // Matches __cc_context_scope_
+    return name.replace(prefixRegex, '');
+};
+
 interface FilesTableProps {
     files: GeminiFile[];
     isLoading: boolean;
@@ -158,16 +163,16 @@ const FilesTable: React.FC<FilesTableProps> = ({
             let statusLabel;
             switch (file.status) {
                 case 'local_only':
-                    statusLabel = <span className="text-xs text-blue-400">Local only. Force Resync to make available to Gemini.</span>;
+                    statusLabel = <span className="text-xs text-blue-400" title="This file exists only on your local device and is not synced with the Gemini API. Force Resync to upload it.">Local only. Force Resync to make available to Gemini.</span>;
                     break;
                 case 'api_only':
-                    statusLabel = <span className="text-xs text-yellow-400">Stored on Gemini API until expiration.</span>;
+                    statusLabel = <span className="text-xs text-yellow-400" title={`This file is stored on the Gemini API and will expire on ${formatDate(file.expirationTime)}. It does not exist locally.`}>Stored on Gemini API until expiration.</span>;
                     break;
                 case 'synced':
-                    statusLabel = <span className="text-xs text-green-400">Synced with Gemini API.</span>;
+                    statusLabel = <span className="text-xs text-green-400" title="This file is synced between your local device and the Gemini API.">Synced with Gemini API.</span>;
                     break;
                 default:
-                    statusLabel = <span className="text-xs text-gray-500">Sync status unknown.</span>;
+                    statusLabel = <span className="text-xs text-gray-500" title="The synchronization status of this file is unknown.">Sync status unknown.</span>;
             }
     
             rows.push(
@@ -175,7 +180,7 @@ const FilesTable: React.FC<FilesTableProps> = ({
                     <td className="pl-4 pr-2 py-4"><input type="checkbox" checked={selectedFiles.has(file.name)} onChange={() => onSelectOne(file.name)} className="rounded bg-gray-600 border-gray-500 text-blue-500 focus:ring-blue-500" disabled={isProtected} /></td>
                     <td className="px-4 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-200">
-                            {file.cachedDisplayName || file.displayName}
+                            {stripPrefix(file.cachedDisplayName || file.displayName)}
                         </div>
                         {statusLabel}
                     </td>

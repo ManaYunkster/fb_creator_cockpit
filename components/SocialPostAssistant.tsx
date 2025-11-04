@@ -11,7 +11,7 @@ import * as dbService from '../services/dbService';
 import SpeakerWaveIcon from './icons/SpeakerWaveIcon';
 import SpeakerXMarkIcon from './icons/SpeakerXMarkIcon';
 import RefreshIcon from './icons/RefreshIcon';
-import { GeminiFile, ContextDocument } from '../types';
+import { GeminiFile, ContextDocument, Inspiration, ImageInspiration, TextInspiration, GeneratedPost, ProcessedPost } from '../types';
 import { log } from '../services/loggingService';
 import BoldIcon from './icons/BoldIcon';
 import ItalicIcon from './icons/ItalicIcon';
@@ -24,65 +24,14 @@ import ClipboardIcon from './icons/ClipboardIcon';
 import XMarkIcon from './icons/XMarkIcon';
 import ChevronDownIcon from './icons/ChevronDownIcon';
 import { parseInternalFileName } from '../config/file_naming_config';
-
-interface InspirationBase {
-    id: string;
-}
-interface ImageInspiration extends InspirationBase {
-    type: 'image';
-    file: File;
-    previewUrl: string;
-    base64: string;
-}
-interface TextInspiration extends InspirationBase {
-    type: 'text';
-    text: string;
-}
-type Inspiration = ImageInspiration | TextInspiration;
-
-interface GeneratedPost {
-  id: string;
-  quote: string | null;
-  imageUrl: string | null;
-  rawContent: string;
-  isRegenerating: boolean;
-  sources?: { uri: string; title: string }[];
-}
-
-const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => resolve((reader.result as string).split(',')[1]);
-        reader.onerror = error => reject(error);
-    });
-};
-
-const RichTextToolbar: React.FC = () => {
-    const applyStyle = (command: string) => {
-        document.execCommand(command, false, undefined);
-    };
-
-    const ToolButton: React.FC<{ command: string, title: string, children: React.ReactNode }> = ({ command, title, children }) => (
-        <button
-            onClick={() => applyStyle(command)}
-            className="p-1.5 text-gray-300 hover:bg-gray-600 hover:text-white rounded-md transition-colors"
-            title={title}
-            onMouseDown={e => e.preventDefault()} // Prevent editor from losing focus
-        >
-            {children}
-        </button>
-    );
-
-    return (
-        <div className="flex items-center gap-1 p-1 bg-gray-700 border-b border-gray-600 rounded-t-md">
-            <ToolButton command="bold" title="Bold"><BoldIcon className="w-5 h-5" /></ToolButton>
-            <ToolButton command="italic" title="Italic"><ItalicIcon className="w-5 h-5" /></ToolButton>
-            <ToolButton command="insertUnorderedList" title="Bulleted List"><ListBulletIcon className="w-5 h-5" /></ToolButton>
-            <ToolButton command="insertOrderedList" title="Numbered List"><ListNumberedIcon className="w-5 h-5" /></ToolButton>
-        </div>
-    );
-};
+import UrlInput from './social/UrlInput';
+import InspirationsInput from './social/InspirationsInput';
+import PlatformSettings from './social/PlatformSettings';
+import UtmPanel from './shared/UtmPanel';
+import ContextProfiles from './social/ContextProfiles';
+import GeneratedPostCard from './social/GeneratedPostCard';
+import RegenerationModal from './social/RegenerationModal';
+import MaximizedEditorModal from './social/MaximizedEditorModal';
 
 const SocialPostAssistant: React.FC = () => {
     const [url, setUrl] = useState('');
@@ -99,12 +48,10 @@ const SocialPostAssistant: React.FC = () => {
     const [activeProfiles, setActiveProfiles] = useState<Set<string>>(new Set(['Brand Voice', 'Author Persona']));
     const [regenModalState, setRegenModalState] = useState<{ isOpen: boolean; postIndex: number | null; feedback: string }>({ isOpen: false, postIndex: null, feedback: '' });
     const [maximizedPost, setMaximizedPost] = useState<{ post: GeneratedPost & { content: string }; index: number } | null>(null);
-    const [copyStatus, setCopyStatus] = useState<Record<string, string>>({});
     const [fetchedUrlContent, setFetchedUrlContent] = useState<string | null>(null);
     
     // UTM Tagging State
     const [appendUtmTags, setAppendUtmTags] = useState(true);
-    const [isUtmPanelOpen, setIsUtmPanelOpen] = useState(false);
     const [utmSource, setUtmSource] = useState('');
     const [utmMedium, setUtmMedium] = useState('web');
     const [utmCampaign, setUtmCampaign] = useState('');
@@ -115,18 +62,17 @@ const SocialPostAssistant: React.FC = () => {
     const { posts } = useContext(DataContext);
     const { modelConfig } = useContext(SettingsContext);
     const { contextDocuments } = useContext(ContentContext);
-    const { syncedFiles } = useContext(geminiCorpusContext);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+    const { contextFiles } = useContext(geminiCorpusContext);
 
     const geminiContextFiles = useMemo(() => {
         const context = new Map<string, GeminiFile>();
-        for (const [key, file] of syncedFiles.entries()) {
+        for (const [key, file] of contextFiles.entries()) {
             if (file.context !== 'corpus') {
                 context.set(key, file);
             }
         }
         return context;
-    }, [syncedFiles]);
+    }, [contextFiles]);
 
     const availablePosts = useMemo(() => {
         return posts.filter(p => p.type !== 'adhoc_email');
@@ -181,91 +127,6 @@ const SocialPostAssistant: React.FC = () => {
         return () => { speechSynthesis.cancel(); };
     }, []);
     
-    const slugify = (text: string) => {
-        if (!text) return '';
-        return text.toString().toLowerCase()
-            .replace(/\s+/g, '-')
-            .replace(/[^\w-]+/g, '')
-            .replace(/--+/g, '-')
-            .replace(/^-+/, '')
-            .replace(/-+$/, '');
-    };
-    
-    useEffect(() => {
-        const utmConfig = VENUE_UTM_CONFIG[venue];
-        if (!utmConfig) return;
-
-        // Set non-campaign defaults from config
-        setUtmSource(utmConfig.source);
-        setUtmMedium(utmConfig.medium);
-        setUtmTerm(utmConfig.term || '');
-        setUtmContent(utmConfig.content || '');
-        setSuppressWelcomePopup(utmConfig.showWelcomeOnShare);
-
-        // Determine the campaign name with override logic
-        const matchingPost = availablePosts.find(p => p.post_url === url);
-        if (utmConfig.campaign) {
-            // Use explicit override from config if it exists
-            setUtmCampaign(utmConfig.campaign);
-        } else if (!useCustomUrl && matchingPost) {
-            // Use slug of article title for corpus posts
-            setUtmCampaign(slugify(matchingPost.title));
-        } else {
-            // Use the fallback for custom URLs
-            setUtmCampaign(utmConfig.defaultCampaignForCustomUrl);
-        }
-    }, [venue, url, useCustomUrl, availablePosts]);
-
-    const handleImageUpload = useCallback(async (files: FileList | null) => {
-        log.info('SocialPostAssistant: handleImageUpload triggered', { fileCount: files?.length });
-        if (!files || files.length === 0) return;
-        
-        const newImageInspirations: ImageInspiration[] = [];
-        const allowedTypes = ['image/png', 'image/jpeg', 'image/webp'];
-        
-        for (const file of Array.from(files)) {
-            if (inspirations.length + newImageInspirations.length >= 10) {
-                setError('You can add a maximum of 10 inspirations.');
-                break;
-            }
-            if (!allowedTypes.includes(file.type)) {
-                setError('Only PNG, JPEG, and WebP files are allowed.');
-                continue;
-            }
-            const base64 = await fileToBase64(file);
-            newImageInspirations.push({
-                id: `${Date.now()}-${file.name}`,
-                type: 'image',
-                file,
-                previewUrl: URL.createObjectURL(file),
-                base64,
-            });
-        }
-        setInspirations(prev => [...prev, ...newImageInspirations]);
-        setError(null);
-    }, [inspirations]);
-
-    const handleAddTextInspiration = () => {
-        if (!textInspirationInput.trim() || inspirations.length >= 10) {
-            if (inspirations.length >= 10) {
-                setError('You can add a maximum of 10 inspirations.');
-            }
-            return;
-        }
-        const newInspiration: TextInspiration = {
-            id: `${Date.now()}-text`,
-            type: 'text',
-            text: textInspirationInput.trim(),
-        };
-        setInspirations(prev => [...prev, newInspiration]);
-        setTextInspirationInput('');
-        setError(null);
-    };
-
-    const handleRemoveInspiration = (id: string) => {
-        setInspirations(prev => prev.filter(item => item.id !== id));
-    };
-    
     const callGeminiForPost = async (quote: string | null, feedback?: string, fetchedContent?: string | null, documentsForPrompt?: ContextDocument[]): Promise<GenerateContentResponse> => {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const matchingPost = availablePosts.find(p => p.post_url === url);
@@ -278,7 +139,7 @@ const SocialPostAssistant: React.FC = () => {
         if (documentsForPrompt && documentsForPrompt.length > 0) {
             const contextDocIds = new Set(documentsForPrompt.map(d => d.id));
             // FIX: Explicitly typed the parameter 'f' as GeminiFile to resolve type inference issues.
-            const geminiFilesForPrompt = Array.from(geminiContextFiles.values()).filter((f: GeminiFile) => contextDocIds.has(f.displayName));
+            const geminiFilesForPrompt = Array.from(geminiContextFiles.values()).filter((f): f is GeminiFile => contextDocIds.has(f.displayName));
 
             if (geminiFilesForPrompt.length > 0) {
                 contextFilesToInclude = geminiFilesForPrompt;
@@ -530,68 +391,6 @@ const SocialPostAssistant: React.FC = () => {
     };
 
 
-    const handleCopy = (event: React.MouseEvent<HTMLButtonElement>, postId: string) => {
-        const contentElement = (event.currentTarget as HTMLElement).closest('.post-panel')?.querySelector('.editable-content');
-        if (contentElement) {
-            navigator.clipboard.writeText((contentElement as HTMLElement).innerText);
-            setCopyStatus(prev => ({ ...prev, [postId]: 'Copied!' }));
-            setTimeout(() => {
-                setCopyStatus(prev => {
-                    const newState = { ...prev };
-                    delete newState[postId];
-                    return newState;
-                });
-            }, 2000);
-        }
-    };
-
-    const handleCopyRender = (event: React.MouseEvent<HTMLButtonElement>, postId: string) => {
-        log.info('SocialPostAssistant: handleCopyRender triggered');
-        const contentElement = (event.currentTarget as HTMLElement).closest('.post-panel')?.querySelector('.editable-content');
-        if (!contentElement) return;
-
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = contentElement.innerHTML;
-        
-        let renderedText = '';
-        
-        tempDiv.childNodes.forEach(node => {
-            const trimmedText = node.textContent?.trim() || '';
-            if (!trimmedText && node.nodeName !== 'P') return;
-
-            if (node.nodeName === 'P') {
-                renderedText += trimmedText + '\n\n';
-            } else if (node.nodeName === 'UL') {
-                const ul = node as HTMLUListElement;
-                Array.from(ul.children).filter(child => child.tagName === 'LI').forEach(li => {
-                    renderedText += `▶︎ ${li.textContent?.trim()}\n`;
-                });
-                renderedText += '\n';
-            } else if (node.nodeName === 'OL') {
-                const ol = node as HTMLOListElement;
-                Array.from(ol.children).filter(child => child.tagName === 'LI').forEach((li, index) => {
-                    renderedText += `${index + 1}. ${li.textContent?.trim()}\n`;
-                });
-                renderedText += '\n';
-            } else {
-                if(trimmedText) renderedText += trimmedText + '\n\n';
-            }
-        });
-        
-        renderedText = renderedText.replace(/\n{3,}/g, '\n\n').trim();
-
-        navigator.clipboard.writeText(renderedText);
-
-        setCopyStatus(prev => ({ ...prev, [`${postId}_render`]: 'Copied!' }));
-        setTimeout(() => {
-            setCopyStatus(prev => {
-                const newState = { ...prev };
-                delete newState[`${postId}_render`];
-                return newState;
-            });
-        }, 2000);
-    };
-    
     const regeneratePost = async (index: number, feedback?: string) => {
         const postToRegen = generatedPosts[index];
         setGeneratedPosts(prev => prev.map((p, i) => i === index ? { ...p, isRegenerating: true } : p));
@@ -633,218 +432,60 @@ const SocialPostAssistant: React.FC = () => {
 
     return (
         <div className="space-y-6 animate-fade-in">
-            {/* Step 1: URL Input */}
-            <div>
-                <label htmlFor="substack-url" className="block text-sm font-medium text-gray-300 mb-2">Step 1: Select Post</label>
-                <div className="flex items-start gap-4">
-                    <div className="flex-grow">
-                        {useCustomUrl ? (
-                            <input
-                                type="url" id="substack-url" value={url} onChange={(e) => setUrl(e.target.value)}
-                                placeholder="https://yourname.substack.com/p/your-post-title"
-                                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors text-gray-200 placeholder-gray-500"
-                            />
-                        ) : (
-                            <select
-                                id="substack-url" value={url} onChange={(e) => setUrl(e.target.value)}
-                                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors text-gray-200"
-                                disabled={availablePosts.length === 0}
-                            >
-                                {availablePosts.length > 0 ? (
-                                    availablePosts.map(post => (
-                                        <option key={post.post_id} value={post.post_url}>{new Date(post.post_date).toLocaleDateString()} - {post.title}</option>
-                                    ))
-                                ) : (<option>No articles found in corpus</option>)}
-                            </select>
-                        )}
-                    </div>
-                    <div className="w-44 flex-shrink-0 flex flex-col items-start gap-2 pt-1">
-                        <div className="flex items-center">
-                            <input
-                                type="checkbox" id="custom-url-toggle" checked={useCustomUrl}
-                                onChange={(e) => {
-                                    setUseCustomUrl(e.target.checked);
-                                    if (!e.target.checked) setFetchedUrlContent(null);
-                                }}
-                                className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
-                            />
-                            <label htmlFor="custom-url-toggle" className="ml-2 text-sm text-gray-300 whitespace-nowrap">Use Custom URL</label>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <UrlInput
+                url={url}
+                setUrl={setUrl}
+                useCustomUrl={useCustomUrl}
+                setUseCustomUrl={setUseCustomUrl}
+                availablePosts={availablePosts}
+                setFetchedUrlContent={setFetchedUrlContent}
+            />
 
-            {/* Step 2: Inspirations Input */}
-            <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">Step 2: Add Inspirations (Optional, up to 10)</label>
-                <p className="text-xs text-gray-400 mb-2">Add text ideas or upload images with quotes. A separate post will be generated for each inspiration.</p>
-                
-                <div className="flex gap-2 mb-4">
-                    <input 
-                        type="text" 
-                        value={textInspirationInput}
-                        onChange={(e) => setTextInspirationInput(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddTextInspiration(); } }}
-                        placeholder="Type an idea or quote..."
-                        className="flex-grow p-3 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors text-gray-200 placeholder-gray-500"
-                    />
-                    <button
-                        onClick={handleAddTextInspiration}
-                        disabled={!textInspirationInput.trim() || inspirations.length >= 10}
-                        className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
-                    >
-                        Add Idea
-                    </button>
-                </div>
+            <InspirationsInput
+                inspirations={inspirations}
+                setInspirations={setInspirations}
+                textInspirationInput={textInspirationInput}
+                setTextInspirationInput={setTextInspirationInput}
+                error={error}
+                setError={setError}
+            />
 
-                <div
-                    onClick={() => fileInputRef.current?.click()}
-                    onDrop={(e) => { e.preventDefault(); handleImageUpload(e.dataTransfer.files); }}
-                    onDragOver={(e) => e.preventDefault()}
-                    className="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg cursor-pointer transition-colors duration-300 border-gray-600 hover:border-gray-500"
-                >
-                    <input
-                        ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={(e) => handleImageUpload(e.target.files)} className="hidden"
-                    />
-                     <p className="text-gray-300"><span className="font-semibold text-blue-400">Click to upload images</span> or drag and drop</p>
-                </div>
-                {inspirations.length > 0 && (
-                    <div className="mt-4">
-                        <h4 className="text-sm font-medium text-gray-300 mb-2">Inspirations Queue:</h4>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-                            {inspirations.map((item, index) => (
-                                <div key={item.id} className="relative group bg-gray-800 rounded-md border border-gray-700">
-                                    {item.type === 'image' ? (
-                                        <img src={item.previewUrl} alt={`preview ${index}`} className="w-full h-auto object-cover rounded-md aspect-square" />
-                                    ) : (
-                                        <div className="text-gray-200 text-sm p-3 rounded-md aspect-square flex items-center justify-center text-center">
-                                            <p className="line-clamp-5">"{item.text}"</p>
-                                        </div>
-                                    )}
-                                    <button 
-                                        onClick={() => handleRemoveInspiration(item.id)}
-                                        className="absolute top-1 right-1 bg-black/60 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                                        title="Remove"
-                                    >
-                                        <XMarkIcon className="w-4 h-4" />
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </div>
+            <PlatformSettings
+                venue={venue}
+                setVenue={setVenue}
+                postLength={postLength}
+                setPostLength={setPostLength}
+            />
 
-            {/* Step 3: Platform, Venue & Length */}
-            <div>
-                 <label className="block text-sm font-medium text-gray-300 mb-2">Step 3: Choose Platform & Post Length</label>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label htmlFor="venue" className="block text-xs font-medium text-gray-400 mb-1">Platform & Venue</label>
-                        <select id="venue" value={venue} onChange={(e) => setVenue(e.target.value)} className="w-full p-3 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors text-gray-200">
-                            <option value="Substack Notes">Substack Notes</option>
-                            <option value="LinkedIn (Personal Feed)">LinkedIn (Personal Feed)</option>
-                            <option value="LinkedIn (The Do Good by Doing Better Page)">LinkedIn (The Do Good by Doing Better Page)</option>
-                            <option value="BlueSky (Personal Feed)">BlueSky (Personal Feed)</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label htmlFor="post-length" className="block text-xs font-medium text-gray-400 mb-1">Post Length</label>
-                        <select id="post-length" value={postLength} onChange={(e) => setPostLength(e.target.value)} className="w-full p-3 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors text-gray-200">
-                            {VENUE_LENGTH_CONFIG[venue]?.options.map(opt => (
-                                <option key={opt.id} value={opt.id}>{opt.label}</option>
-                            ))}
-                        </select>
-                    </div>
-                 </div>
-            </div>
-
-            {/* UTM Tagging Section */}
-            <div className="bg-gray-800 border border-gray-700 rounded-lg">
-                <div className="flex items-center justify-between p-4 cursor-pointer" onClick={() => setIsUtmPanelOpen(prev => !prev)}>
-                    <div className="flex items-center">
-                        <input
-                            type="checkbox" id="append-utm-toggle" checked={appendUtmTags}
-                            onChange={(e) => setAppendUtmTags(e.target.checked)}
-                            onClick={e => e.stopPropagation()} // Prevent click from bubbling to the parent div
-                            className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
-                        />
-                        <label htmlFor="append-utm-toggle" className="ml-2 text-sm font-medium text-gray-200 cursor-pointer">Append UTM Tags to Link</label>
-                    </div>
-                    <button
-                        aria-expanded={isUtmPanelOpen}
-                        aria-controls="utm-panel"
-                        className="p-1 text-gray-400 hover:text-white"
-                        title={isUtmPanelOpen ? "Collapse" : "Expand"}
-                    >
-                        <ChevronDownIcon className={`w-5 h-5 transition-transform ${isUtmPanelOpen ? 'rotate-180' : ''}`} />
-                    </button>
-                </div>
-                {isUtmPanelOpen && (
-                    <div id="utm-panel" className="p-4 border-t border-gray-700 space-y-3 animate-fade-in">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                            <div>
-                                <label htmlFor="utm-source" className="block text-xs text-gray-400 mb-1">Source (utm_source)</label>
-                                <input type="text" id="utm-source" value={utmSource} onChange={e => setUtmSource(e.target.value)} className="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-1 focus:ring-blue-500 text-gray-200"/>
-                            </div>
-                            <div>
-                                <label htmlFor="utm-medium" className="block text-xs text-gray-400 mb-1">Medium (utm_medium)</label>
-                                <input type="text" id="utm-medium" value={utmMedium} onChange={e => setUtmMedium(e.target.value)} className="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-1 focus:ring-blue-500 text-gray-200"/>
-                            </div>
-                        </div>
-                        <div>
-                            <label htmlFor="utm-campaign" className="block text-xs text-gray-400 mb-1">Campaign (utm_campaign)</label>
-                            <input type="text" id="utm-campaign" value={utmCampaign} onChange={e => setUtmCampaign(e.target.value)} className="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-1 focus:ring-blue-500 text-gray-200"/>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                            <div>
-                                <label htmlFor="utm-term" className="block text-xs text-gray-400 mb-1">Term (utm_term)</label>
-                                <input type="text" id="utm-term" value={utmTerm} onChange={e => setUtmTerm(e.target.value)} className="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-1 focus:ring-blue-500 text-gray-200"/>
-                            </div>
-                            <div>
-                                <label htmlFor="utm-content" className="block text-xs text-gray-400 mb-1">Content (utm_content)</label>
-                                <input type="text" id="utm-content" value={utmContent} onChange={e => setUtmContent(e.target.value)} className="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-1 focus:ring-blue-500 text-gray-200"/>
-                            </div>
-                        </div>
-                        <div className="pt-2">
-                            <div className="flex items-center">
-                                <input
-                                    type="checkbox"
-                                    id="suppress-welcome-toggle"
-                                    checked={suppressWelcomePopup}
-                                    onChange={(e) => setSuppressWelcomePopup(e.target.checked)}
-                                    className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
-                                />
-                                <label htmlFor="suppress-welcome-toggle" className="ml-2 text-sm text-gray-300">
-                                    Suppress Substack 'Welcome' popup
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </div>
+            <UtmPanel
+                url={url}
+                venue={venue}
+                useCustomUrl={useCustomUrl}
+                availablePosts={availablePosts}
+                appendUtmTags={appendUtmTags}
+                setAppendUtmTags={setAppendUtmTags}
+                utmSource={utmSource}
+                setUtmSource={setUtmSource}
+                utmMedium={utmMedium}
+                setUtmMedium={setUtmMedium}
+                utmCampaign={utmCampaign}
+                setUtmCampaign={setUtmCampaign}
+                utmTerm={utmTerm}
+                setUtmTerm={setUtmTerm}
+                utmContent={utmContent}
+                setUtmContent={setUtmContent}
+                suppressWelcomePopup={suppressWelcomePopup}
+                setSuppressWelcomePopup={setSuppressWelcomePopup}
+            />
             
-            {/* Step 4: Options & Action */}
             <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 space-y-4">
-                 <div>
-                    <p className="text-sm font-medium text-gray-300 mb-2">Include Context Profiles:</p>
-                     <div className="flex items-center gap-2 flex-wrap">
-                        {contextProfiles.map(profile => (
-                            <button
-                                key={profile.name}
-                                onClick={() => handleProfileToggle(profile.name)}
-                                className={`px-3 py-1.5 text-xs font-semibold rounded-full border transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-800 focus-visible:ring-blue-500 ${
-                                    activeProfiles.has(profile.name)
-                                    ? 'bg-blue-600 border-blue-500 text-white'
-                                    : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'
-                                }`}
-                            >
-                                {profile.name} ({profile.count})
-                            </button>
-                        ))}
-                    </div>
-                     <p className="text-xs text-gray-400 mt-2">Enrich the prompt with documents for on-brand results. Tool-specific instructions are always included.</p>
-                </div>
+                        <ContextProfiles
+                            allContextDocuments={contextDocuments}
+                            allFiles={geminiContextFiles}
+                            activeProfiles={activeProfiles}
+                            onProfileToggle={handleProfileToggle}
+                            toolScope="spa"
+                        />
                 <button
                     onClick={handleGenerate} disabled={isLoading || !url}
                     className="w-full px-6 py-3 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center justify-center"
@@ -858,122 +499,43 @@ const SocialPostAssistant: React.FC = () => {
                 </button>
             </div>
             
-            {/* Results */}
             {error && <div className="p-4 bg-red-900/50 border border-red-700 text-red-300 rounded-md">{error}</div>}
             
             {processedPosts.length > 0 && (
                 <div className="space-y-4">
                     <h3 className="text-lg font-semibold text-gray-100">Generated Posts for {venue}:</h3>
                     {processedPosts.map((post, index) => (
-                         <div key={post.id} className="post-panel bg-gray-900 border border-gray-700 rounded-lg p-4">
-                             <div className="flex justify-between items-start mb-4 flex-wrap gap-2">
-                                <div className="flex-1">
-                                    <h4 className="font-semibold text-gray-300">Post #{index + 1}</h4>
-                                    {post.quote && (
-                                        <p className="text-xs italic text-gray-400 mt-1">
-                                            Source: "{post.quote}"
-                                        </p>
-                                    )}
-                                </div>
-                                 <div className="flex items-center gap-2 flex-shrink-0">
-                                     {/* FIX: Corrected the object structure passed to setMaximizedPost to match the state's type definition. */}
-                                     <button onClick={() => setMaximizedPost({ post, index })} className="px-3 py-1 bg-gray-600 text-white text-xs rounded-md hover:bg-gray-500 transition-colors flex items-center gap-1" title="Enlarge Editor"><ArrowsPointingOutIcon className="w-4 h-4" /></button>
-                                     <button onClick={() => setRegenModalState({ isOpen: true, postIndex: index, feedback: '' })} className="px-3 py-1 bg-gray-600 text-white text-xs rounded-md hover:bg-gray-500 transition-colors flex items-center gap-1" title="Regenerate this post"><RefreshIcon className="w-4 h-4" />Regen</button>
-                                     <button onClick={() => handleRegenerateWithEmojis(index)} className="px-3 py-1 bg-gray-600 text-white text-xs rounded-md hover:bg-gray-500 transition-colors" title="Regenerate with Emojis">+ Emojis</button>
-                                     <button onClick={() => handleReadAloud(post.content, index)} className="px-3 py-1 bg-gray-600 text-white text-xs rounded-md hover:bg-gray-500 transition-colors flex items-center gap-1" title="Read post aloud">{speakingPostIndex === index ? <SpeakerXMarkIcon className="w-4 h-4" /> : <SpeakerWaveIcon className="w-4 h-4" />}</button>
-                                     <button onClick={(e) => handleCopyRender(e, post.id)} className="px-3 py-1 bg-gray-600 text-white text-xs rounded-md hover:bg-gray-500 transition-colors flex items-center gap-1" title="Copy as plain text with formatting">
-                                        <ClipboardModernIcon className="w-4 h-4" />
-                                        {copyStatus[`${post.id}_render`] || 'Copy/Render'}
-                                      </button>
-                                     <button onClick={(e) => handleCopy(e, post.id)} className="px-3 py-1 bg-gray-600 text-white text-xs rounded-md hover:bg-gray-500 transition-colors flex items-center gap-1" title="Copy displayed text">
-                                        <ClipboardIcon className="w-4 h-4" />
-                                        {copyStatus[post.id] || 'Copy'}
-                                      </button>
-                                 </div>
-                             </div>
-                             <div className="flex gap-4 items-start">
-                                {post.imageUrl && <div className="w-1/4 flex-shrink-0"><img src={post.imageUrl} alt={`Source for post ${index + 1}`} className="rounded-md w-full object-cover"/></div>}
-                                <div className={`relative flex-1 ${post.isRegenerating ? 'opacity-50' : ''}`}>
-                                    {post.isRegenerating && <div className="absolute inset-0 flex items-center justify-center bg-gray-800/50 rounded-md z-10"><svg className="animate-spin h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg></div>}
-                                    <div>
-                                         <RichTextToolbar />
-                                         <div
-                                             contentEditable={!post.isRegenerating}
-                                             onBlur={(e) => handleContentChange(e.currentTarget.innerHTML, index)}
-                                             suppressContentEditableWarning={true}
-                                             className="editable-content w-full h-96 p-3 bg-gray-800 border border-gray-600 border-t-0 rounded-b-md overflow-y-auto prose prose-sm prose-invert max-w-none focus:ring-2 focus:ring-blue-500 focus:outline-none [&_ul]:list-disc [&_ul]:my-4 [&_ol]:list-decimal [&_ol]:my-4 [&_ul]:pl-5 [&_ol]:pl-5"
-                                             dangerouslySetInnerHTML={{ __html: post.content }}
-                                         />
-                                    </div>
-                                </div>
-                             </div>
-                             {post.sources && post.sources.length > 0 && (
-                                <div className="mt-4 border-t border-gray-700 pt-3">
-                                    <h5 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Sources Used by AI</h5>
-                                    <ul className="list-disc list-inside space-y-1">
-                                        {post.sources.map((source, idx) => (
-                                            <li key={idx} className="text-sm">
-                                                <a href={source.uri} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline break-all" title={source.uri}>
-                                                    {source.title || source.uri}
-                                                </a>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            )}
-                         </div>
+                        <GeneratedPostCard
+                            key={post.id}
+                            post={post}
+                            index={index}
+                            speakingPostIndex={speakingPostIndex}
+                            handleReadAloud={handleReadAloud}
+                            handleContentChange={handleContentChange}
+                            setMaximizedPost={setMaximizedPost}
+                            setRegenModalState={setRegenModalState}
+                            handleRegenerateWithEmojis={handleRegenerateWithEmojis}
+                        />
                     ))}
                 </div>
             )}
 
-            {/* Regeneration Modal */}
-            {regenModalState.isOpen && (
-                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in" onClick={() => setRegenModalState({ isOpen: false, postIndex: null, feedback: '' })}>
-                    <div className="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
-                        <header className="p-4 border-b border-gray-600">
-                            <h3 className="text-lg font-bold text-gray-100">Regenerate Post #{regenModalState.postIndex !== null ? regenModalState.postIndex + 1 : ''}</h3>
-                        </header>
-                        <main className="p-6">
-                            <label htmlFor="regen-feedback" className="block text-sm font-medium text-gray-300 mb-2">Provide feedback for improvement (optional):</label>
-                            <textarea
-                                id="regen-feedback"
-                                value={regenModalState.feedback}
-                                onChange={(e) => setRegenModalState(s => ({ ...s, feedback: e.target.value }))}
-                                placeholder="e.g., Make it shorter, add more emojis, be more professional..."
-                                rows={4}
-                                className="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors text-gray-200 placeholder-gray-500"
-                            />
-                        </main>
-                        <footer className="flex justify-end gap-4 p-4 bg-gray-900/50 border-t border-gray-700">
-                            <button onClick={() => setRegenModalState({ isOpen: false, postIndex: null, feedback: '' })} className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-500 transition-colors">Cancel</button>
-                            <button onClick={handleConfirmRegenerate} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-500 transition-colors">Regenerate</button>
-                        </footer>
-                    </div>
-                </div>
-            )}
+            <RegenerationModal
+                isOpen={regenModalState.isOpen}
+                postIndex={regenModalState.postIndex}
+                feedback={regenModalState.feedback}
+                setFeedback={(feedback) => setRegenModalState(s => ({ ...s, feedback }))}
+                onConfirm={handleConfirmRegenerate}
+                onCancel={() => setRegenModalState({ isOpen: false, postIndex: null, feedback: '' })}
+            />
             
-            {/* Maximized Editor Modal */}
             {maximizedPost && (
-                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 animate-fade-in p-4" onClick={() => setMaximizedPost(null)}>
-                    <div className="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                        <header className="p-3 border-b border-gray-600 flex justify-between items-center flex-shrink-0">
-                            <h3 className="text-lg font-bold text-gray-100">Editing Post #{maximizedPost.index + 1}</h3>
-                            <button onClick={() => setMaximizedPost(null)} className="p-1.5 text-gray-300 hover:bg-gray-600 hover:text-white rounded-md" title="Minimize">
-                                <ArrowsPointingInIcon className="w-6 h-6" />
-                            </button>
-                        </header>
-                        <main className="p-4 flex-1 flex flex-col min-h-0">
-                             <RichTextToolbar />
-                             <div
-                                contentEditable
-                                onBlur={(e) => handleContentChange(e.currentTarget.innerHTML, maximizedPost.index)}
-                                suppressContentEditableWarning={true}
-                                className="editable-content w-full flex-1 p-4 bg-gray-900 border border-gray-600 border-t-0 rounded-b-md overflow-y-auto prose prose-invert max-w-none focus:ring-2 focus:ring-blue-500 focus:outline-none [&_ul]:list-disc [&_ul]:my-4 [&_ol]:list-decimal [&_ol]:my-4 [&_ul]:pl-5 [&_ol]:pl-5"
-                                dangerouslySetInnerHTML={{ __html: maximizedPost.post.content }}
-                            />
-                        </main>
-                    </div>
-                </div>
+                <MaximizedEditorModal
+                    post={maximizedPost.post}
+                    index={maximizedPost.index}
+                    onClose={() => setMaximizedPost(null)}
+                    onContentChange={handleContentChange}
+                />
             )}
         </div>
     );

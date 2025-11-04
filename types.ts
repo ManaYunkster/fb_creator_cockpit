@@ -221,3 +221,31 @@ export interface ContentContextType {
     addContextDocument: (file: File, internalName: string) => Promise<void>;
     removeContextDocument: (internalName: string) => Promise<void>;
 }
+
+interface InspirationBase {
+    id: string;
+}
+export interface ImageInspiration extends InspirationBase {
+    type: 'image';
+    file: File;
+    previewUrl: string;
+    base64: string;
+}
+export interface TextInspiration extends InspirationBase {
+    type: 'text';
+    text: string;
+}
+export type Inspiration = ImageInspiration | TextInspiration;
+
+export interface GeneratedPost {
+  id: string;
+  quote: string | null;
+  imageUrl: string | null;
+  rawContent: string;
+  isRegenerating: boolean;
+  sources?: { uri: string; title: string }[];
+}
+
+export interface ProcessedPost extends GeneratedPost {
+    content: string;
+}

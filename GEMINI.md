@@ -102,6 +102,10 @@ To ensure consistency and maintainability, all future development should adhere 
   - **Principle:** The UI should be composed of small, single-purpose, and reusable components. We will continue to separate presentational ("dumb") components from container ("smart") components where it makes sense.
   - **Responsibility:** When creating new UI elements, consider if they can be broken down into smaller, reusable pieces. Icons, buttons, and panels are good examples of this.
 
-- **Custom Hooks for Reusable Logic (`/hooks`)**
-  - **Principle:** Stateful, complex logic that is reused across multiple components should be extracted into custom hooks.
-  - **Responsibility:** Before implementing component-level state logic, consider if it might be needed elsewhere. The `useCorpusProcessor` hook is a prime example, encapsulating all logic for file processing and state management, which is then used by multiple components.
+- **Componentization of Large or Complex Pages**
+  - **Principle:** Very large or complex pages or functions should be broken down into smaller, more manageable components. Current models and tools available have difficulty working with very large files and very complicated logic. The Social Post Assistant tool is an example of a tool that could benefit from this approach.
+  - **Responsibility:** When a component becomes too large or complex, it should be refactored into smaller, more focused components. This improves readability, maintainability, and testability.
+
+- **Componentization of Large or Complex Pages**
+  - **Principle:** Very large or complex pages or functions should be broken down into smaller, more manageable components. Current models and tools available have difficulty working with very large files and very complicated logic. The Social Post Assistant tool is an example of a tool that could benefit from this approach.
+  - **Responsibility:** When a component becomes too large or complex, it should be refactored into smaller, more focused components. This improves readability, maintainability, and testability.
