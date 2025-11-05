@@ -106,14 +106,14 @@ const QuoteFinder: React.FC = () => {
     const [utmCampaign, setUtmCampaign] = useState('');
     const [utmTerm, setUtmTerm] = useState('');
 
-    const { syncedFiles, status: corpusStatus } = useContext(geminiCorpusContext);
+    const { contextFiles: allContextFiles, status: corpusStatus } = useContext(geminiCorpusContext);
     const { modelConfig } = useContext(SettingsContext);
     const { contextDocuments } = useContext(ContentContext);
 
     const { corpusFiles, geminiContextFiles } = useMemo(() => {
         const corpus = new Map<string, GeminiFile>();
         const context = new Map<string, GeminiFile>();
-        for (const [key, file] of syncedFiles.entries()) {
+        for (const [key, file] of allContextFiles.entries()) {
             if (file.context === 'corpus') {
                 corpus.set(key, file);
             } else {
@@ -121,7 +121,7 @@ const QuoteFinder: React.FC = () => {
             }
         }
         return { corpusFiles: corpus, geminiContextFiles: context };
-    }, [syncedFiles]);
+    }, [allContextFiles]);
 
     const modeLabels: Record<Mode, string> = {
         quote: 'Quote Finder',
@@ -270,14 +270,13 @@ const QuoteFinder: React.FC = () => {
             }
 
             setProgressMessage('Analyzing content and finding callbacks...');
-            // FIX: Explicitly typed 'file' as GeminiFile to resolve type inference issues.
-            const allPostsFile = Array.from(corpusFiles.values()).find((file: GeminiFile) => (file.displayName || '').endsWith('all_posts.json'));
+            const allPostsFile = (Array.from(corpusFiles.values()) as GeminiFile[]).find(file => (file.displayName || '').endsWith('all_posts.json'));
             if (!allPostsFile) {
                 throw new Error("Could not find 'all_posts.json' in the synced corpus files.");
             }
 
             let brandContextString: string | undefined;
-            const contextFilesToInclude = [];
+            const contextFilesToInclude: GeminiFile[] = [];
             
             const documentsForPrompt = contextDocuments.filter(doc => {
                 const parsed = parseInternalFileName(doc.id);
@@ -300,8 +299,7 @@ const QuoteFinder: React.FC = () => {
 
             if (documentsForPrompt.length > 0) {
                 const contextDocIds = new Set(documentsForPrompt.map(d => d.id));
-                // FIX: Explicitly typed 'f' as GeminiFile to resolve type inference issues.
-                const geminiFilesForPrompt = Array.from(geminiContextFiles.values()).filter((f: GeminiFile) => contextDocIds.has(f.displayName));
+                const geminiFilesForPrompt = (Array.from(geminiContextFiles.values()) as GeminiFile[]).filter(f => contextDocIds.has(f.displayName));
 
                 if (geminiFilesForPrompt.length > 0) {
                     contextFilesToInclude.push(...geminiFilesForPrompt);
@@ -312,7 +310,7 @@ const QuoteFinder: React.FC = () => {
             
             const { systemInstruction, userPrompt, schema } = AI_PROMPTS.getQuoteFinderPrompt(mode, workingArticleContent, brandContextString);
             
-            const filesForApi = [allPostsFile, ...contextFilesToInclude];
+            const filesForApi = [allPostsFile, ...contextFilesToInclude].filter((f): f is GeminiFile => !!f);
             
             const textPart = { text: userPrompt };
             const fileParts = filesForApi.map(file => ({
@@ -331,7 +329,7 @@ const QuoteFinder: React.FC = () => {
                 }
             });
             
-            const jsonStr = geminiResponse.text.trim();
+            const jsonStr = (geminiResponse.text || '').trim();
             const parsedResults = safeJsonParse(jsonStr);
 
             if (!Array.isArray(parsedResults)) {
@@ -467,7 +465,7 @@ const QuoteFinder: React.FC = () => {
                 }
             });
 
-            const jsonStr = response.text.trim();
+            const jsonStr = (response.text || '').trim();
             const parsedResult = safeJsonParse(jsonStr);
             const newCallbackSentence = parsedResult.newCallbackSentence;
 
@@ -682,7 +680,7 @@ const QuoteFinder: React.FC = () => {
                                     ? 'bg-blue-600 border-blue-500 text-white'
                                     : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'
                                 }`}
-                                title={generateProfileTooltip(profile.name, relevantDocs, geminiContextFilesMap)}
+                                title={generateProfileTooltip(profile.name, relevantDocs, geminiContextFiles)}
                             >
                                 {profile.name} ({profile.count})
                             </button>
@@ -747,7 +745,7 @@ const QuoteFinder: React.FC = () => {
                                     </div>
                                     <div className="flex items-center gap-2 pt-4 flex-wrap">
                                         <button onClick={() => handleCopy(result.quote, `quote_${index}`)} className="flex items-center gap-1.5 text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-md text-gray-300 transition-colors">
-                                            <ClipboardIcon className="w-3.5 h-3.5" /> {copyStatus[`quote_${index}`] ? 'Copied!' : 'Copy Quote'}
+                                            <ClipboardIcon className="w-3.5 h-3.5" /> {copyStatus[`quote_${index}`] ? 'Copied!' : 'Copied!'}
                                         </button>
                                          <button onClick={() => handleCopyWithAttribution(result, index)} className="flex items-center gap-1.5 text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-md text-gray-300 transition-colors">
                                             <ClipboardIcon className="w-3.5 h-3.5" /> {copyStatus[`attr_${index}`] ? 'Copied!' : 'Copy with Attribution'}

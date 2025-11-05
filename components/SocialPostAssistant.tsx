@@ -75,7 +75,9 @@ const SocialPostAssistant: React.FC = () => {
     }, [contextFiles]);
 
     const availablePosts = useMemo(() => {
-        return posts.filter(p => p.type !== 'adhoc_email');
+        return posts
+            .filter(p => p.type !== 'adhoc_email')
+            .sort((a, b) => new Date(b.post_date).getTime() - new Date(a.post_date).getTime());
     }, [posts]);
     
     const relevantDocs = contextDocuments.filter(doc => {
