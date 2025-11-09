@@ -211,8 +211,8 @@ const getMimeTypeFromFile = (file: File): string => {
   return 'application/octet-stream';
 };
 
-export const registerLocalFile = async (internalName: string, originalName: string, file: File): Promise<void> => {
-    log.info('geminiFileService.registerLocalFile', { internalName, originalName });
+export const registerLocalFile = async (internalName: string, originalName: string, file: File, isPermanent = false): Promise<void> => {
+    log.info('geminiFileService.registerLocalFile', { internalName, originalName, isPermanent });
     try {
         const content = await file.arrayBuffer().then(buffer => new Blob([buffer], { type: file.type }));
         const correctMimeType = getMimeTypeFromFile(file);
@@ -222,7 +222,7 @@ export const registerLocalFile = async (internalName: string, originalName: stri
             content,
             mimeType: correctMimeType,
             name: originalName,
-            type: correctMimeType, // FIX: Use the determined MIME type
+            type: correctMimeType, 
             modified: file.lastModified,
         };
         await dbService.put('file_contents', contentRecord);
@@ -235,6 +235,7 @@ export const registerLocalFile = async (internalName: string, originalName: stri
             sizeBytes: file.size.toString(),
             createTime: new Date().toISOString(),
             updateTime: new Date().toISOString(),
+            isPermanent: isPermanent,
         };
         await dbService.put('files', preliminaryFile);
         
@@ -375,6 +376,11 @@ export const processFileMetadata = async (file: GeminiFile, cachedFile?: GeminiF
     if (localCache?.cachedDisplayName) {
         processedFile.cachedDisplayName = localCache.cachedDisplayName;
         processedFile.isDisplayNameCached = true;
+    }
+
+    // Restore isPermanent flag
+    if (localCache?.isPermanent) {
+        processedFile.isPermanent = true;
     }
 
     // Attempt to parse internal naming convention

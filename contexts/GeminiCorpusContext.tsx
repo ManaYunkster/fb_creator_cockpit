@@ -163,6 +163,10 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
             log.info('Checking for stale local records pointing to deleted remote files...');
             let staleRemotePointersToDelete: string[] = [];
             freshLocalMetadata.forEach(localMeta => {
+                if (localMeta.isPermanent) {
+                    log.info(`Skipping deletion check for permanent file: ${localMeta.displayName}`);
+                    return;
+                }
                 if (localMeta.name.startsWith('files/') && !remoteFilesMap.has(localMeta.displayName)) {
                     log.info(`Found stale local record for deleted remote file: ${localMeta.name} (displayName: "${localMeta.displayName}")`);
                     staleRemotePointersToDelete.push(localMeta.name);

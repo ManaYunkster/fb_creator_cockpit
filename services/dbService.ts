@@ -1,7 +1,7 @@
 import { log } from './loggingService';
 
 const DB_NAME = 'CreatorCockpitDB';
-const DB_VERSION = 3;
+const DB_VERSION = 5; // Incremented to handle schema cleanup
 const DB_EXPORT_VERSION = 1;
 
 // Defines all object stores for the application.
@@ -13,8 +13,8 @@ const STORES_CONFIG: { name: string, keyPath?: string }[] = [
     { name: 'opens' }, // OpenRecord objects, no natural key, use auto-increment
     { name: 'deliveries' }, // DeliveryRecord objects, use auto-increment
     { name: 'corpus_files', keyPath: 'path' }, // Raw file contents from ZIP: { path, content }
-    { name: 'context_documents', keyPath: 'id' }, // ContextDocument objects, keyed by their unique filename
     { name: 'file_contents', keyPath: 'internalName' }, // Raw file content Blobs: { internalName, content, mimeType }
+    { name: 'permanent_documents', keyPath: 'id' }, // New store for permanent documents
 ];
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -39,27 +39,29 @@ const initDB = (): Promise<IDBDatabase> => {
         request.onsuccess = () => {
             const db = request.result;
             
-            // This event is fired when the database is deleted or modified from another tab/window.
             db.onversionchange = () => {
                 log.info('IndexedDB version change detected. Closing connection to allow upgrade.');
                 db.close();
-                dbPromise = null; // Connection is now invalid, force re-initialization on next call.
+                dbPromise = null;
             };
 
-            // This event is fired when the connection is unexpectedly closed.
             db.onclose = () => {
                 log.error('IndexedDB connection closed unexpectedly.');
-                dbPromise = null; // Force re-initialization on next call.
+                dbPromise = null;
             };
             
             resolve(db);
         };
 
         request.onupgradeneeded = (event) => {
-            log.info('IndexedDB upgrade needed. Creating object stores...');
+            log.info('IndexedDB upgrade needed. Syncing schema...');
             const db = (event.target as IDBOpenDBRequest).result;
+            const currentStoreNames = new Set(db.objectStoreNames);
+            const desiredStoreNames = new Set(STORES_CONFIG.map(s => s.name));
+
+            // Create new stores
             STORES_CONFIG.forEach(storeConfig => {
-                if (!db.objectStoreNames.contains(storeConfig.name)) {
+                if (!currentStoreNames.has(storeConfig.name)) {
                     const options: IDBObjectStoreParameters = {};
                     if (storeConfig.keyPath) {
                         options.keyPath = storeConfig.keyPath;
@@ -68,6 +70,14 @@ const initDB = (): Promise<IDBDatabase> => {
                     }
                     db.createObjectStore(storeConfig.name, options);
                     log.info(`- Created object store: ${storeConfig.name}`);
+                }
+            });
+
+            // Delete old, obsolete stores
+            currentStoreNames.forEach(storeName => {
+                if (!desiredStoreNames.has(storeName)) {
+                    db.deleteObjectStore(storeName);
+                    log.info(`- Deleted obsolete object store: ${storeName}`);
                 }
             });
         };
@@ -251,18 +261,13 @@ export const sanitizeFileContentStore = async (): Promise<void> => {
                     let shouldDelete = false;
                     let reason = '';
 
-                    // Condition 1: Check for orphaned content (no corresponding metadata).
                     if (!validDisplayNames.has(internalName)) {
                         shouldDelete = true;
                         reason = 'orphaned content (no metadata entry)';
-                    }
-                    // Condition 2: Check for null, undefined, or a Blob with size 0.
-                    else if (!record.content || (record.content instanceof Blob && record.content.size === 0)) {
+                    } else if (!record.content || (record.content instanceof Blob && record.content.size === 0)) {
                         shouldDelete = true;
                         reason = 'empty content blob';
-                    }
-                    // Condition 3: Check for invalid or missing mimeType.
-                    else if (!record.mimeType || record.mimeType === 'application/octet-stream') {
+                    } else if (!record.mimeType || record.mimeType === 'application/octet-stream') {
                         shouldDelete = true;
                         reason = `invalid mimeType ('${record.mimeType}')`;
                     }
@@ -287,7 +292,6 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
         const reader = new FileReader();
         reader.onloadend = () => {
             if (reader.result) {
-                // Result is "data:mime/type;base64,the_base64_string", we want only the latter part.
                 const base64String = (reader.result as string).split(',')[1];
                 resolve(base64String);
             } else {
@@ -314,7 +318,6 @@ const base64ToBlob = (base64: string, mimeType: string): Blob => {
  */
 export const exportDB = async (): Promise<Blob> => {
     log.info('dbService: Exporting database...');
-    // Ensure the database is clean before exporting
     await sanitizeFileContentStore();
 
     const db = await initDB();
@@ -325,7 +328,6 @@ export const exportDB = async (): Promise<Blob> => {
 
     const storeNames = Array.from(db.objectStoreNames);
     
-    // Step 1: Fetch all data from all stores
     await new Promise<void>((resolve, reject) => {
         const transaction = db.transaction(storeNames, 'readonly');
         transaction.onerror = () => reject(transaction.error);
@@ -340,14 +342,13 @@ export const exportDB = async (): Promise<Blob> => {
         });
     });
 
-    // Step 2: Serialize Blobs in file_contents to Base64
     if (exportObject.file_contents && Array.isArray(exportObject.file_contents)) {
         log.info('Serializing Blobs in file_contents to Base64...');
         const serializedContents = await Promise.all(
             exportObject.file_contents.map(async (record: any) => {
                 if (record.content instanceof Blob) {
                     const base64Content = await blobToBase64(record.content);
-                    return { ...record, content: base64Content }; // Replace Blob with Base64 string
+                    return { ...record, content: base64Content };
                 }
                 return record;
             })
@@ -369,19 +370,17 @@ export const importDB = async (jsonData: { [key: string]: any }): Promise<void> 
         throw new Error('Invalid backup file: missing export version identifier.');
     }
 
-    // Step 1: Deserialize any Base64 content back to Blobs before writing to the DB.
     if (jsonData.file_contents && Array.isArray(jsonData.file_contents)) {
         log.info('Deserializing Base64 in file_contents to Blobs...');
         jsonData.file_contents = jsonData.file_contents.map((record: any) => {
             if (typeof record.content === 'string' && record.mimeType) {
                 const blob = base64ToBlob(record.content, record.mimeType);
-                return { ...record, content: blob }; // Replace Base64 string with Blob
+                return { ...record, content: blob };
             }
             return record;
         });
     }
     
-    // Step 2: Open DB and perform a single transaction to clear all stores and then add new data.
     const db = await initDB();
     const storeNames = Array.from(db.objectStoreNames);
     
@@ -398,12 +397,10 @@ export const importDB = async (jsonData: { [key: string]: any }): Promise<void> 
             reject(transaction.error);
         };
         
-        // Clear all stores first
         storeNames.forEach(storeName => {
             transaction.objectStore(storeName).clear();
         });
         
-        // Then populate them with the backup data
         storeNames.forEach(storeName => {
             if (jsonData[storeName] && Array.isArray(jsonData[storeName])) {
                 const store = transaction.objectStore(storeName);

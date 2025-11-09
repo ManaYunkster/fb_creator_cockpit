@@ -4,7 +4,7 @@
 
 import React, { createContext, useState, useEffect, ReactNode, useMemo, useContext, useRef, useCallback } from 'react';
 import { Type } from '@google/genai';
-import { ContextDocument, ContentContextType, PreloadedAsset } from '../types';
+import { ContextDocument, ContentContextType, PreloadedAsset, GeminiFile } from '../types';
 import { AI_PROMPTS, initPrompts } from '../services/promptService';
 import { log } from '../services/loggingService';
 import * as geminiFileService from '../services/geminiFileService';
@@ -38,19 +38,15 @@ export const ContentProvider: React.FC<ContentProviderProps> = ({ children }) =>
         try {
             await initPrompts();
             
-            let docs = await dbService.getAll<ContextDocument>('context_documents');
+            let docs = await dbService.getAll<ContextDocument>('permanent_documents');
             
             if (docs.length > 0) {
-                log.info('ContentContext: Loading context documents from IndexedDB cache.');
-                setContextDocuments(docs);
+                log.info(`ContentContext: Loading ${docs.length} permanent documents from IndexedDB.`);
             } else {
-                log.info('ContentContext: No cached context documents found. Seeding initial documents locally.');
+                log.info('ContentContext: No permanent documents found in DB. Seeding from initial assets...');
                 
                 const assetsToSeed = APP_CONFIG.PRELOADED_ASSETS.filter(a => a.loader === 'ContentContext' && a.loadOnStartup);
-                if (assetsToSeed.length === 0) {
-                    log.info('ContentContext: No preloaded assets configured for seeding.');
-                    setContextDocuments([]);
-                } else {
+                if (assetsToSeed.length > 0) {
                     const modelConfigString = window.localStorage.getItem('modelConfig');
                     const modelConfig = modelConfigString ? { ...APP_CONFIG.DEFAULT_MODEL_CONFIG, ...JSON.parse(modelConfigString) } : APP_CONFIG.DEFAULT_MODEL_CONFIG;
                     const classificationSystemInstruction = AI_PROMPTS.CONTEXT_CLASSIFICATION.SYSTEM_INSTRUCTION;
@@ -71,10 +67,6 @@ export const ContentProvider: React.FC<ContentProviderProps> = ({ children }) =>
                                 log.info(`Asset content for ${asset.path} is empty, skipping.`);
                                 return null;
                             }
-                            
-                            const originalName = parseInternalFileName(id)?.originalName || id;
-                            const file = new File([content], originalName, { type: 'text/markdown' });
-                            await geminiFileService.registerLocalFile(id, originalName, file);
 
                             const classificationResponse = await geminiFileService.generateContent({
                                 model: modelConfig.model,
@@ -110,20 +102,40 @@ export const ContentProvider: React.FC<ContentProviderProps> = ({ children }) =>
                     const validDocs = seededDocs.filter((doc): doc is ContextDocument => doc !== null);
 
                     if (validDocs.length > 0) {
-                        await dbService.bulkPut('context_documents', validDocs);
-                        log.info(`ContentContext: Saved ${validDocs.length} seeded documents to IndexedDB. The sync service will handle uploading.`);
-                        setContextDocuments(validDocs);
+                        await dbService.bulkPut('permanent_documents', validDocs);
+                        log.info(`ContentContext: Saved ${validDocs.length} seeded documents to the 'permanent_documents' store.`);
+                        docs = validDocs;
                     }
                 }
             }
             
+            if (docs.length > 0) {
+                setContextDocuments(docs);
+
+                const existingFiles = await dbService.getAll<GeminiFile>('files');
+                const existingFileDisplayNames = new Set(existingFiles.map(f => f.displayName));
+
+                log.info('ContentContext: Verifying and registering permanent documents...');
+                for (const doc of docs) {
+                    if (existingFileDisplayNames.has(doc.id)) {
+                        log.info(`- "${doc.id}" already exists. Skipping registration.`);
+                        continue;
+                    }
+                    
+                    log.info(`- Registering new permanent document: "${doc.id}"`);
+                    const originalName = parseInternalFileName(doc.id)?.originalName || doc.id;
+                    const file = new File([doc.content], originalName, { type: 'text/markdown' });
+                    await geminiFileService.registerLocalFile(doc.id, originalName, file, true);
+                }
+            }
+
             setIsContextReady(true);
             log.info('ContentContext: Context is ready.');
 
         } catch (error) {
             log.error("A critical error occurred in ContentContext during load and seed:", error);
             setContextDocuments([]);
-            setIsContextReady(true); // Still ready, but with no documents.
+            setIsContextReady(true);
         } finally {
             setIsLoading(false);
         }
@@ -134,11 +146,11 @@ export const ContentProvider: React.FC<ContentProviderProps> = ({ children }) =>
     }, [loadContext]);
 
     const addContextDocument = useCallback(async (file: File, internalName: string) => {
-        // Omitted for brevity: This function already follows the DB-first approach
+        // This function will be implemented later to add new permanent documents
     }, []);
 
     const removeContextDocument = useCallback(async (internalName: string) => {
-        // Omitted for brevity: This function already follows the DB-first approach
+        // This function will be implemented later to remove permanent documents
     }, []);
 
     const value = useMemo(() => ({

@@ -33,6 +33,7 @@ export interface ContextDocument {
   classification: string;
   summary: string;
   profile: string;
+  isPermanent?: boolean;
 }
 
 export interface GeminiFile {
@@ -52,6 +53,7 @@ export interface GeminiFile {
   context?: string;
   scope?: string;
   status?: 'synced' | 'local_only' | 'api_only' | 'unknown';
+  isPermanent?: boolean;
 }
 
 export interface FileContentRecord {
