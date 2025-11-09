@@ -163,7 +163,7 @@ const FilesTable: React.FC<FilesTableProps> = ({
             let statusLabel;
             switch (file.status) {
                 case 'local_only':
-                    statusLabel = <span className="text-xs text-blue-400" title="This file exists only on your local device and is not synced with the Gemini API. Force Resync to upload it.">Local only. Force Resync to make available to Gemini.</span>;
+                    statusLabel = <span className="text-xs text-blue-400" title="This file exists only on your local device and is not synced with the Gemini API.">Local record. Not synced.</span>;
                     break;
                 case 'api_only':
                     statusLabel = <span className="text-xs text-yellow-400" title={`This file is stored on the Gemini API and will expire on ${formatDate(file.expirationTime)}. It does not exist locally.`}>Stored on Gemini API until expiration.</span>;

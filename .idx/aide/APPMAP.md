@@ -58,7 +58,11 @@ This sub-directory contains all SVG icon components used throughout the UI. Each
 
 -   **`ContentContext.tsx`**: Manages the state for "context documents." It follows a DB-first approach, loading and classifying documents (using prompts from `promptService`), saving them to IndexedDB, and then filtering the displayed list based on the main Gemini sync status.
 -   **`DataContext.tsx`**: Manages the state of the main user-provided corpus data (posts, subscribers, etc.) after it has been processed. It uses IndexedDB as a persistent cache for fast startup.
--   **`GeminiCorpusContext.tsx`**: Orchestrates a robust, DB-first file synchronization process. On startup, it performs an integrity check to remove local database orphans. Its `syncCorpus` function compares the local and remote states, and when uploading a newer version of a file, it automatically deletes the old remote version to prevent duplicates. The `forceResync` function intelligently mirrors the local state to the remote by using the local `files` metadata table as the source of truth to identify and delete only true remote orphans.
+-   **`GeminiCorpusContext.tsx`**: Orchestrates a robust, multi-step, self-healing data synchronization process. On every load, it performs a "three-way merge" to ensure data integrity:
+    1.  **Local Cleanup:** Resolves `displayName` collisions and removes stale records within the local IndexedDB.
+    2.  **Remote Cleanup:** Deletes any duplicate files on the Gemini API.
+    3.  **Stale Pointer Removal:** Removes any local records that point to non-existent remote files.
+    Only after these healing steps does it proceed with the standard sync, ensuring a consistent and reliable state between the local database and the remote API.
 -   **`SettingsContext.tsx`**: Manages global, user-configurable settings, such as the selected AI model, temperature, and logging level.
 -   **`TestModeContext.tsx`**: Manages the state of the developer "Test Mode," including which specific regression tests are active.
 

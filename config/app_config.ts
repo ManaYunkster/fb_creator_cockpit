@@ -3,8 +3,8 @@
 import { HarmCategory, HarmBlockThreshold, LogLevelString, PreloadedAsset } from '../types';
 
 export const APP_CONFIG = {
-    VERSION: '1.8.0',
-    BUILD: '20251104.1',
+    VERSION: '1.8.1',
+    BUILD: '20251106.1',
   DEFAULT_LOG_LEVEL: 'DEBUG' as LogLevelString,
   FOOTER_CREDIT: 'Created by Eric Duell',
   FOOTER_COPYRIGHT_LINE1: 'Copyright ©2025 Elucidate Ventures LLC',

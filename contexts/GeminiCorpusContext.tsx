@@ -1,5 +1,4 @@
 
-
 import React, { createContext, useState, useEffect, ReactNode, useCallback, useContext, useMemo, useRef } from 'react';
 import { GeminiFile, GeminiCorpusContextType, CorpusSyncStatus, FileContentRecord } from '../types';
 import * as geminiFileService from '../services/geminiFileService';
@@ -52,144 +51,197 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
         log.info(`GeminiCorpusContext: Starting corpus synchronization (Forced: ${isForced})...`);
 
         try {
-            // Step 1: Sanitize database to remove invalid content records.
-            await dbService.sanitizeFileContentStore();
+            // Step 1: Gather all data sources
+            const allLocalMetadata = await dbService.getAll<GeminiFile>('files');
+            const allLocalContent = await dbService.getAll<FileContentRecord>('file_contents');
+            const contentMap = new Map(allLocalContent.map(c => [c.internalName, c]));
 
-            // Step 2: Sanitize database to remove stale 'local/' metadata records.
-            log.info('GeminiCorpusContext: Sanitizing stale local file metadata...');
-            const allMetadata = await dbService.getAll<GeminiFile>('files');
-            const localRecords = allMetadata.filter(f => f.name.startsWith('local/'));
-            const remoteRecords = allMetadata.filter(f => f.name.startsWith('files/'));
-            const remoteDisplayNameSet = new Set(remoteRecords.map(f => f.displayName));
-            
-            let staleCount = 0;
-            for (const localRecord of localRecords) {
-                if (remoteDisplayNameSet.has(localRecord.displayName)) {
-                    await dbService.del('files', localRecord.name);
-                    staleCount++;
+            // Step 2: Perform local-first cleanup based on displayName collisions
+            log.info('Sanitizing local metadata for displayName collisions...');
+            const localFilesByDisplayName = new Map<string, GeminiFile[]>();
+            allLocalMetadata.forEach(file => {
+                if (file.displayName) {
+                    const group = localFilesByDisplayName.get(file.displayName) || [];
+                    group.push(file);
+                    localFilesByDisplayName.set(file.displayName, group);
+                }
+            });
+
+            let staleLocalRecordsToDelete = new Set<string>();
+
+            for (const [displayName, files] of localFilesByDisplayName.entries()) {
+                if (files.length <= 1) continue;
+
+                log.info(`Found ${files.length} local records for "${displayName}". Resolving canonical version.`);
+
+                files.sort((a, b) => new Date(b.updateTime).getTime() - new Date(a.updateTime).getTime());
+
+                const syncedRecords = files.filter(f => f.name.startsWith('files/'));
+                const localOnlyRecords = files.filter(f => f.name.startsWith('local/'));
+
+                let canonical: GeminiFile | null = null;
+
+                const latestSynced = syncedRecords[0] || null;
+                const latestLocalOnly = localOnlyRecords[0] || null;
+                const latestLocalContent = latestLocalOnly ? contentMap.get(latestLocalOnly.displayName) : null;
+
+                if (latestSynced && latestLocalContent) {
+                    const syncedTime = new Date(latestSynced.updateTime).getTime();
+                    const localContentTime = new Date(latestLocalContent.modified).getTime();
+                    if (localContentTime > syncedTime) {
+                        canonical = latestLocalOnly;
+                        log.info(`Local content for "${displayName}" is newer. Prioritizing local version.`);
+                    } else {
+                        canonical = latestSynced;
+                    }
+                } else if (latestSynced) {
+                    canonical = latestSynced;
+                } else if (latestLocalOnly) {
+                    canonical = latestLocalOnly;
+                }
+
+                if (canonical) {
+                    log.info(`Canonical local record for "${displayName}" is ${canonical.name}.`);
+                    files.forEach(f => {
+                        if (f.name !== canonical!.name) {
+                            staleLocalRecordsToDelete.add(f.name);
+                        }
+                    });
+                } else {
+                    log.warn(`Could not determine canonical record for "${displayName}". Skipping cleanup for this group.`);
                 }
             }
-            if (staleCount > 0) {
-                log.info(`Sanitized ${staleCount} stale local file metadata records.`);
+            
+            if (staleLocalRecordsToDelete.size > 0) {
+                log.info(`Deleting ${staleLocalRecordsToDelete.size} stale local metadata records.`);
+                for (const name of staleLocalRecordsToDelete) {
+                    await dbService.del('files', name);
+                    log.info(`Deleted stale local record: ${name}`);
+                }
+            } else {
+                log.info('No local displayName collisions found to clean up.');
             }
 
-            const allLocalContent: FileContentRecord[] = await dbService.getAll('file_contents');
-            const allLocalMetadata = await dbService.getAll<GeminiFile>('files');
-            const localMetadataDisplayNames = new Set(allLocalMetadata.map(m => m.displayName));
-
-            // Use the metadata store ('files') as the source of truth for what should exist.
-            // Filter the content store to only include files that have a corresponding metadata entry.
-            const localFiles = allLocalContent.filter(lc => localMetadataDisplayNames.has(lc.internalName));
+            // Step 3: Sanitize content store and get fresh data
+            await dbService.sanitizeFileContentStore();
+            const freshLocalMetadata = await dbService.getAll<GeminiFile>('files');
+            const freshLocalContent = await dbService.getAll<FileContentRecord>('file_contents');
             
+            // Step 4: Full remote sync and reconciliation
             const rawRemoteFiles = await geminiFileService.listGeminiFiles();
-            const cachedFiles = await dbService.getAll<GeminiFile>('files');
-            const cachedFilesMap = new Map(cachedFiles.map(f => [f.name, f]));
+            log.info('Deduplicating remote files by displayName...');
+            const remoteFilesByDisplayName = new Map<string, GeminiFile[]>();
+            rawRemoteFiles.forEach(file => {
+                if (file.displayName) {
+                    const group = remoteFilesByDisplayName.get(file.displayName) || [];
+                    group.push(file);
+                    remoteFilesByDisplayName.set(file.displayName, group);
+                }
+            });
 
-            const processedRemoteFiles = await Promise.all(rawRemoteFiles.map(rf => 
-                geminiFileService.processFileMetadata(rf, cachedFilesMap.get(rf.name))
-            ));
-            const remoteFilesMap = new Map(processedRemoteFiles.map(f => [f.displayName, f]));
+            let canonicalRemoteFiles: GeminiFile[] = [];
+            for (const [displayName, files] of remoteFilesByDisplayName.entries()) {
+                if (files.length > 1) {
+                    log.info(`Found ${files.length} remote duplicates for "${displayName}".`);
+                    files.sort((a, b) => new Date(b.updateTime).getTime() - new Date(a.updateTime).getTime());
+                    const canonical = files.shift()!;
+                    canonicalRemoteFiles.push(canonical);
+                    log.info(`Canonical remote for "${displayName}" is ${canonical.name}.`);
+                    for (const duplicate of files) {
+                        log.info(`Deleting remote duplicate: ${duplicate.name} (displayName: "${displayName}")`);
+                        await geminiFileService.deleteFileFromCorpus(duplicate.name);
+                    }
+                } else {
+                    canonicalRemoteFiles.push(files[0]);
+                }
+            }
+            log.info('Remote deduplication complete.');
+            
+            const remoteFilesMap = new Map(canonicalRemoteFiles.map(f => [f.displayName, f]));
+            
+            // Step 5: Clean up local records that point to non-existent remote files
+            log.info('Checking for stale local records pointing to deleted remote files...');
+            let staleRemotePointersToDelete: string[] = [];
+            freshLocalMetadata.forEach(localMeta => {
+                if (localMeta.name.startsWith('files/') && !remoteFilesMap.has(localMeta.displayName)) {
+                    log.info(`Found stale local record for deleted remote file: ${localMeta.name} (displayName: "${localMeta.displayName}")`);
+                    staleRemotePointersToDelete.push(localMeta.name);
+                }
+            });
 
-            log.info(`Found ${localFiles.length} local files and ${remoteFilesMap.size} remote files (after processing).`);
+            if (staleRemotePointersToDelete.length > 0) {
+                log.info(`Deleting ${staleRemotePointersToDelete.length} stale remote pointers.`);
+                for (const name of staleRemotePointersToDelete) {
+                    await dbService.del('files', name);
+                    log.info(`Deleted stale remote pointer: ${name}`);
+                }
+            }
+
+            // Step 6: Determine files to upload
+            const finalLocalMetadata = await dbService.getAll<GeminiFile>('files');
+            const finalLocalMetadataMap = new Map(finalLocalMetadata.map(f => [f.displayName, f]));
+            const localFilesToSync = freshLocalContent.filter(lc => finalLocalMetadataMap.has(lc.internalName));
+            
+            log.info(`Found ${localFilesToSync.length} local files to sync and ${remoteFilesMap.size} remote files.`);
             setSyncStatus('analyzing-diff');
 
             if (isForced) {
-                // The 'files' metadata table is the source of truth for what the application is managing.
-                const localFileDisplayNames = new Set(allLocalMetadata.map(m => m.displayName));
-                const remoteAppFiles = processedRemoteFiles.filter(rf => rf.displayName?.startsWith('__cc_'));
-                
-                // A remote file is an orphan if it's not in our definitive list of managed files.
-                const filesToDelete = remoteAppFiles.filter(rf => !localFileDisplayNames.has(rf.displayName));
+                const localFileDisplayNames = new Set(finalLocalMetadata.map(m => m.displayName));
+                const remoteAppFiles = canonicalRemoteFiles.filter(rf => rf.displayName?.startsWith('__cc_'));
+                const remoteOrphans = remoteAppFiles.filter(rf => !localFileDisplayNames.has(rf.displayName));
 
-                if (filesToDelete.length > 0) {
-                    log.info(`Force Resync: Found ${filesToDelete.length} orphaned application-managed files on remote to delete.`);
-                    log.debug('Orphaned files to delete:', filesToDelete.map(f => ({ name: f.name, displayName: f.displayName })))
-                    setSyncStatus(`deleting ${filesToDelete.length} orphaned files`);
-                    await Promise.all(filesToDelete.map(f => geminiFileService.deleteFileFromCorpus(f.name)));
-                    log.info('Force Resync: Finished deleting remote orphaned files.');
-                } else {
-                    log.info('Force Resync: No orphaned application-managed files found on remote to delete.');
+                if (remoteOrphans.length > 0) {
+                    log.info(`Force Resync: Found ${remoteOrphans.length} orphaned remote files to delete.`);
+                    for (const orphan of remoteOrphans) {
+                        log.info(`Deleting remote orphan: ${orphan.name} (displayName: "${orphan.displayName}")`);
+                        await geminiFileService.deleteFileFromCorpus(orphan.name);
+                    }
                 }
             }
 
-            interface UploadTask {
-                fileRecord: FileContentRecord;
-                oldRemoteFileToDelete?: GeminiFile;
-            }
-
-            const uploadTasks: UploadTask[] = [];
-            localFiles.forEach(lf => {
+            const uploadTasks: { fileRecord: FileContentRecord; oldRemoteFileToDelete?: GeminiFile }[] = [];
+            localFilesToSync.forEach(lf => {
                 const remoteFile = remoteFilesMap.get(lf.internalName);
                 let shouldUpload = false;
-                let reason = '';
-                let oldRemoteFileToDelete: GeminiFile | undefined = undefined;
-
                 if (isForced) {
                     shouldUpload = true;
-                    reason = 'Forced resync';
-                    if (remoteFile) {
-                        oldRemoteFileToDelete = remoteFile;
+                } else if (!remoteFile) {
+                    shouldUpload = true;
+                } else {
+                    const localDate = new Date(lf.modified);
+                    const remoteDate = new Date(remoteFile.updateTime);
+                    if (localDate.getTime() > remoteDate.getTime()) {
+                        shouldUpload = true;
                     }
-                                } else if (!remoteFile) {
-                                    shouldUpload = true;
-                                    reason = 'File is new or missing from remote';
-                                } else {
-                                    const localDate = new Date(lf.modified);
-                                    const remoteDate = new Date(remoteFile.updateTime);
-                                    if (localDate.getTime() > remoteDate.getTime()) {
-                                        shouldUpload = true;
-                                        reason = `Local file is newer (${localDate.toISOString()} > ${remoteDate.toISOString()})`;
-                                        oldRemoteFileToDelete = remoteFile;
-                                    } else {
-                                        shouldUpload = false;
-                                        reason = `Local file is not newer (${localDate.toISOString()} <= ${remoteDate.toISOString()})`;
-                                    }
-                                }
-
-                log.debug(`Sync check for "${lf.internalName}":`, {
-                    shouldUpload,
-                    reason,
-                    localFile: { name: lf.name, modified: new Date(lf.modified).toISOString() },
-                    remoteFile: remoteFile ? { name: remoteFile.name, displayName: remoteFile.displayName, updateTime: new Date(remoteFile.updateTime).toISOString() } : 'N/A',
-                });
+                }
 
                 if (shouldUpload) {
-                    uploadTasks.push({ fileRecord: lf, oldRemoteFileToDelete });
+                    uploadTasks.push({ fileRecord: lf, oldRemoteFileToDelete: remoteFile });
                 }
             });
             
             log.info(`${uploadTasks.length} files to upload.`);
-
             if (uploadTasks.length > 0) {
                 setSyncStatus(`uploading ${uploadTasks.length} files`);
-                const batches: UploadTask[][] = [];
                 for (let i = 0; i < uploadTasks.length; i += MAX_CONCURRENT_UPLOADS) {
-                    batches.push(uploadTasks.slice(i, i + MAX_CONCURRENT_UPLOADS));
-                }
-
-                for (let i = 0; i < batches.length; i++) {
-                    log.info(`Uploading batch ${i + 1}/${batches.length}...`);
-                    await Promise.all(batches[i].map(async (task) => {
-                        const { fileRecord, oldRemoteFileToDelete } = task;
+                    const batch = uploadTasks.slice(i, i + MAX_CONCURRENT_UPLOADS);
+                    await Promise.all(batch.map(async (task) => {
                         try {
-                            const file = new File([fileRecord.content], fileRecord.name, { type: fileRecord.mimeType });
-                            await geminiFileService.uploadFileToCorpus(file, fileRecord.internalName);
-                            log.info(`Successfully uploaded: ${fileRecord.internalName}`);
-
-                            if (oldRemoteFileToDelete) {
-                                log.info(`Deleting old remote version of ${fileRecord.internalName} (name: ${oldRemoteFileToDelete.name})`);
-                                await geminiFileService.deleteFileFromCorpus(oldRemoteFileToDelete.name);
-                                log.info(`Successfully deleted old remote version of ${fileRecord.internalName}`);
+                            const file = new File([task.fileRecord.content], task.fileRecord.name, { type: task.fileRecord.mimeType });
+                            if (task.oldRemoteFileToDelete) {
+                                log.info(`Deleting old remote version of ${task.fileRecord.internalName}`);
+                                await geminiFileService.deleteFileFromCorpus(task.oldRemoteFileToDelete.name).catch(e => log.warn('Old file deletion failed, proceeding with upload', e));
                             }
+                            await geminiFileService.uploadFileToCorpus(file, task.fileRecord.internalName);
+                            log.info(`Successfully uploaded: ${task.fileRecord.internalName}`);
                         } catch (uploadError) {
-                            log.error(`Failed to upload and process ${fileRecord.internalName}:`, uploadError);
-                            // Optional: Decide if one failure should halt the entire sync.
-                            // For now, we log the error and continue.
+                            log.error(`Failed to upload ${task.fileRecord.internalName}:`, uploadError);
                         }
                     }));
                 }
             }
             
+            // Final verification step
             setSyncStatus('verifying');
             const finalRawRemoteFiles = await geminiFileService.listGeminiFiles();
             const finalCachedFiles = await dbService.getAll<GeminiFile>('files');
