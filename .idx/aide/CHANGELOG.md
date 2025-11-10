@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## Version 1.9.0 (Build 20251109.1)
+
+*   **REFACTOR (Architecture):** Overhauled the `ContentContext` to use a "database-first" architecture. The system now performs a one-time seeding of permanent context documents into IndexedDB and treats the database as the source of truth, eliminating redundant processing and race conditions during application startup.
+*   **FIX (Data Integrity):** The new `ContentContext` architecture prevents the creation of orphaned `local_only` file records by verifying if a permanent document has already been registered with the Gemini API before attempting to add it.
+*   **FIX (Logging):** Corrected invalid `log.warn` calls in `GeminiCorpusContext.tsx` to use the appropriate `log.info` and `log.error` methods, adhering to the established logging standards.
+*   **DOCS (AIDE):** Introduced a new architectural document, `.idx/aide/DATAMAP.md`, which provides a comprehensive map of the core data structures used in the application. Updated all internal AIDE documentation to reflect this addition and the new `ContentContext` architecture.
+
 ## Version 1.8.1 (Build 20251106.1)
 
 *   **FIX (Data Integrity):** Implemented a comprehensive, multi-step data synchronization and self-healing process in `GeminiCorpusContext.tsx`.

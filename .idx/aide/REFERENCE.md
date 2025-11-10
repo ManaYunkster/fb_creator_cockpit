@@ -1,5 +1,31 @@
 # Reference Materials & Architectural Decisions
 
+---
+
+## `ContentContext`: Database-First Architecture
+
+**Date:** 2025-11-09
+
+**Context:** The initial implementation of `ContentContext` relied on fetching and classifying static context documents from the `/src/context_documents` directory on every application startup. This was inefficient and led to a race condition where files could be registered with the Gemini API multiple times, creating orphaned `local_only` duplicates in the database.
+
+**Problem:** The startup logic was not idempotent. It lacked a persistent source of truth to know which foundational documents had already been processed and registered, causing redundant processing and data duplication.
+
+**Solution:** The architecture was refactored to a "database-first" model, making IndexedDB the central source of truth for all permanent context documents.
+
+### Key Logic Steps in `ContentContext.tsx`:
+
+1.  **Check for Permanent Documents:** On application load, the context first queries the `permanent_documents` object store in IndexedDB.
+2.  **Load from DB:** If documents are found in the database, they are loaded directly into the application state. This is now the standard and fast path.
+3.  **Seed if Empty:** If the `permanent_documents` store is empty (e.g., on a fresh install or after a database reset), the context performs a one-time seeding process:
+    a. It fetches the predefined `PreloadedAsset` files (e.g., `brand-brief.md`, `author-bio.md`).
+    b. It uses the Gemini API to generate a `classification` and `summary` for each document.
+    c. The resulting `ContextDocument` objects are saved to the `permanent_documents` store in IndexedDB.
+4.  **Verify Registration:** After loading documents from the database (either from a pre-existing state or after seeding), the context verifies that each permanent document has been registered with the `GeminiFile` service. It checks the `files` database table and only registers a document if it is missing, preventing the creation of duplicates.
+
+This new model ensures that the expensive classification and registration process happens only once. By treating the database as the definitive record, the application startup is now faster, more resilient, and free from the previous race condition.
+
+---
+
 ## Data Synchronization: Local-First Cleanup and Three-Way Merge
 
 **Date:** 2025-11-06

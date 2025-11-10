@@ -52,11 +52,41 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
 
         try {
             // Step 1: Gather all data sources
-            const allLocalMetadata = await dbService.getAll<GeminiFile>('files');
+            let allLocalMetadata = await dbService.getAll<GeminiFile>('files');
             const allLocalContent = await dbService.getAll<FileContentRecord>('file_contents');
             const contentMap = new Map(allLocalContent.map(c => [c.internalName, c]));
 
-            // Step 2: Perform local-first cleanup based on displayName collisions
+            // Step 2: Purge stale local records where a synced version exists
+            log.info('Sanitizing for stale local records...');
+            const filesByName = new Map<string, { local?: GeminiFile, synced?: GeminiFile }>();
+            allLocalMetadata.forEach(file => {
+                if (!file.displayName) return;
+                const entry = filesByName.get(file.displayName) || {};
+                if (file.name.startsWith('local/')) {
+                    entry.local = file;
+                } else if (file.name.startsWith('files/')) {
+                    entry.synced = file;
+                }
+                filesByName.set(file.displayName, entry);
+            });
+
+            const staleLocalRecordsToDelete = new Set<string>();
+            for (const [displayName, files] of filesByName.entries()) {
+                if (files.local && files.synced && !files.local.isPermanent) {
+                    log.info(`Found stale local record for already-synced file "${displayName}". Deleting ${files.local.name}.`);
+                    staleLocalRecordsToDelete.add(files.local.name);
+                }
+            }
+            if (staleLocalRecordsToDelete.size > 0) {
+                for (const name of staleLocalRecordsToDelete) {
+                    await dbService.del('files', name);
+                }
+                allLocalMetadata = await dbService.getAll<GeminiFile>('files');
+            } else {
+                log.info('No stale local records found.');
+            }
+            
+            // Step 3: Perform local-first cleanup based on displayName collisions
             log.info('Sanitizing local metadata for displayName collisions...');
             const localFilesByDisplayName = new Map<string, GeminiFile[]>();
             allLocalMetadata.forEach(file => {
@@ -67,7 +97,7 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
                 }
             });
 
-            let staleLocalRecordsToDelete = new Set<string>();
+            let staleCollisionRecordsToDelete = new Set<string>();
 
             for (const [displayName, files] of localFilesByDisplayName.entries()) {
                 if (files.length <= 1) continue;
@@ -103,18 +133,20 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
                 if (canonical) {
                     log.info(`Canonical local record for "${displayName}" is ${canonical.name}.`);
                     files.forEach(f => {
-                        if (f.name !== canonical!.name) {
-                            staleLocalRecordsToDelete.add(f.name);
+                        if (f.name !== canonical!.name && !f.isPermanent) {
+                            staleCollisionRecordsToDelete.add(f.name);
+                        } else if (f.name !== canonical!.name && f.isPermanent) {
+                            log.info(`Skipping deletion of non-canonical but permanent file: ${f.name}`);
                         }
                     });
                 } else {
-                    log.warn(`Could not determine canonical record for "${displayName}". Skipping cleanup for this group.`);
+                    log.info(`Could not determine canonical record for "${displayName}". Skipping cleanup for this group.`);
                 }
             }
             
-            if (staleLocalRecordsToDelete.size > 0) {
-                log.info(`Deleting ${staleLocalRecordsToDelete.size} stale local metadata records.`);
-                for (const name of staleLocalRecordsToDelete) {
+            if (staleCollisionRecordsToDelete.size > 0) {
+                log.info(`Deleting ${staleCollisionRecordsToDelete.size} stale local metadata records from collisions.`);
+                for (const name of staleCollisionRecordsToDelete) {
                     await dbService.del('files', name);
                     log.info(`Deleted stale local record: ${name}`);
                 }
@@ -122,12 +154,12 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
                 log.info('No local displayName collisions found to clean up.');
             }
 
-            // Step 3: Sanitize content store and get fresh data
+            // Step 4: Sanitize content store and get fresh data
             await dbService.sanitizeFileContentStore();
             const freshLocalMetadata = await dbService.getAll<GeminiFile>('files');
             const freshLocalContent = await dbService.getAll<FileContentRecord>('file_contents');
             
-            // Step 4: Full remote sync and reconciliation
+            // Step 5: Full remote sync and reconciliation
             const rawRemoteFiles = await geminiFileService.listGeminiFiles();
             log.info('Deduplicating remote files by displayName...');
             const remoteFilesByDisplayName = new Map<string, GeminiFile[]>();
@@ -148,6 +180,10 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
                     canonicalRemoteFiles.push(canonical);
                     log.info(`Canonical remote for "${displayName}" is ${canonical.name}.`);
                     for (const duplicate of files) {
+                        if (duplicate.displayName && duplicate.displayName.startsWith('__cc_sys')) {
+                            log.info(`Skipping deletion of suspected permanent system file on remote: ${duplicate.name}`);
+                            continue;
+                        }
                         log.info(`Deleting remote duplicate: ${duplicate.name} (displayName: "${displayName}")`);
                         await geminiFileService.deleteFileFromCorpus(duplicate.name);
                     }
@@ -159,10 +195,11 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
             
             const remoteFilesMap = new Map(canonicalRemoteFiles.map(f => [f.displayName, f]));
             
-            // Step 5: Clean up local records that point to non-existent remote files
+            // Step 6: Clean up local records that point to non-existent remote files
             log.info('Checking for stale local records pointing to deleted remote files...');
             let staleRemotePointersToDelete: string[] = [];
-            freshLocalMetadata.forEach(localMeta => {
+            const currentLocalMetadata = await dbService.getAll<GeminiFile>('files'); // Re-fetch for safety
+            currentLocalMetadata.forEach(localMeta => {
                 if (localMeta.isPermanent) {
                     log.info(`Skipping deletion check for permanent file: ${localMeta.displayName}`);
                     return;
@@ -181,7 +218,7 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
                 }
             }
 
-            // Step 6: Determine files to upload
+            // Step 7: Determine files to upload
             const finalLocalMetadata = await dbService.getAll<GeminiFile>('files');
             const finalLocalMetadataMap = new Map(finalLocalMetadata.map(f => [f.displayName, f]));
             const localFilesToSync = freshLocalContent.filter(lc => finalLocalMetadataMap.has(lc.internalName));
@@ -192,7 +229,7 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
             if (isForced) {
                 const localFileDisplayNames = new Set(finalLocalMetadata.map(m => m.displayName));
                 const remoteAppFiles = canonicalRemoteFiles.filter(rf => rf.displayName?.startsWith('__cc_'));
-                const remoteOrphans = remoteAppFiles.filter(rf => !localFileDisplayNames.has(rf.displayName));
+                const remoteOrphans = remoteAppFiles.filter(rf => !rf.displayName?.startsWith('__cc_sys') && !localFileDisplayNames.has(rf.displayName));
 
                 if (remoteOrphans.length > 0) {
                     log.info(`Force Resync: Found ${remoteOrphans.length} orphaned remote files to delete.`);
@@ -234,7 +271,7 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
                             const file = new File([task.fileRecord.content], task.fileRecord.name, { type: task.fileRecord.mimeType });
                             if (task.oldRemoteFileToDelete) {
                                 log.info(`Deleting old remote version of ${task.fileRecord.internalName}`);
-                                await geminiFileService.deleteFileFromCorpus(task.oldRemoteFileToDelete.name).catch(e => log.warn('Old file deletion failed, proceeding with upload', e));
+                                await geminiFileService.deleteFileFromCorpus(task.oldRemoteFileToDelete.name).catch(e => log.error('Old file deletion failed, proceeding with upload', e));
                             }
                             await geminiFileService.uploadFileToCorpus(file, task.fileRecord.internalName);
                             log.info(`Successfully uploaded: ${task.fileRecord.internalName}`);
@@ -245,16 +282,26 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
                 }
             }
             
-            // Final verification step
+            // Final verification and state merge step
             setSyncStatus('verifying');
-            const finalRawRemoteFiles = await geminiFileService.listGeminiFiles();
-            const finalCachedFiles = await dbService.getAll<GeminiFile>('files');
-            const finalCachedFilesMap = new Map(finalCachedFiles.map(f => [f.name, f]));
-            const finalProcessedFiles = await Promise.all(finalRawRemoteFiles.map(rf => 
-                geminiFileService.processFileMetadata(rf, finalCachedFilesMap.get(rf.name))
-            ));
-            const finalFilesMap = new Map(finalProcessedFiles.map(f => [f.displayName, f]));
-            
+            const finalRemoteFilesList = await geminiFileService.listGeminiFiles();
+            const finalLocalFiles = await dbService.getAll<GeminiFile>('files');
+            const finalFilesMap = new Map<string, GeminiFile>();
+
+            // Process local files first
+            for (const localFile of finalLocalFiles) {
+                const processed = await geminiFileService.processFileMetadata(localFile, localFile);
+                processed.status = 'local_only';
+                finalFilesMap.set(processed.displayName, processed);
+            }
+
+            // Process remote files, overwriting local entries with synced data
+            for (const remoteFile of finalRemoteFilesList) {
+                const processed = await geminiFileService.processFileMetadata(remoteFile, finalFilesMap.get(remoteFile.displayName));
+                processed.status = 'synced';
+                finalFilesMap.set(processed.displayName, processed);
+            }
+
             setContextFiles(finalFilesMap);
             await geminiFileService.cacheFiles(finalFilesMap);
             setStatus('READY');

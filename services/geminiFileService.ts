@@ -227,7 +227,7 @@ export const registerLocalFile = async (internalName: string, originalName: stri
         };
         await dbService.put('file_contents', contentRecord);
 
-        const preliminaryFile: Partial<GeminiFile> = {
+        const preliminaryFile: GeminiFile = {
             name: `local/${internalName}`,
             displayName: internalName,
             cachedDisplayName: originalName,
@@ -236,6 +236,7 @@ export const registerLocalFile = async (internalName: string, originalName: stri
             createTime: new Date().toISOString(),
             updateTime: new Date().toISOString(),
             isPermanent: isPermanent,
+            uri: '', // Add a placeholder URI to satisfy the type requirement
         };
         await dbService.put('files', preliminaryFile);
         
@@ -388,7 +389,7 @@ export const processFileMetadata = async (file: GeminiFile, cachedFile?: GeminiF
     if (parsed) {
         processedFile.context = parsed.context;
         processedFile.scope = parsed.scope;
-        // If we don't have a cached friendly name, use the one from the file name.
+        // If we-don't have a cached friendly name, use the one from the file name.
         if (!processedFile.cachedDisplayName) {
             processedFile.cachedDisplayName = parsed.originalName;
         }

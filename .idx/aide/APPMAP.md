@@ -45,6 +45,10 @@ This directory contains all reusable React components that form the user interfa
 
 This sub-directory contains all SVG icon components used throughout the UI. Each file is a React component that renders a specific icon. (e.g., `ArchiveBoxIcon.tsx`, `DatabaseIcon.tsx`, `PencilIcon.tsx`, `RefreshIcon.tsx`, `StopIcon.tsx`, `PaperclipIcon.tsx`, etc.)
 
+## Data (`.idx/aide`)
+
+-   **`DATAMAP.md`**: Provides a comprehensive map of the core data structures used throughout the application, serving as a central reference for understanding the shape and purpose of our data.
+
 ## Configuration (`src/config`)
 
 -   **`app_config.ts`**: Contains core, non-user-editable application settings like the semantic version number, build number, footer text, and default model configuration.

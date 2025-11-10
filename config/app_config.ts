@@ -3,7 +3,7 @@
 import { HarmCategory, HarmBlockThreshold, LogLevelString, PreloadedAsset } from '../types';
 
 export const APP_CONFIG = {
-    VERSION: '1.9.0',
+    VERSION: '1.9.1',
     BUILD: '20251109.1',
   DEFAULT_LOG_LEVEL: 'DEBUG' as LogLevelString,
   FOOTER_CREDIT: 'Created by Eric Duell',
@@ -11,7 +11,7 @@ export const APP_CONFIG = {
   FOOTER_COPYRIGHT_LINE2: 'Made with 🩶 in Philadelphia',
   DEFAULT_MODEL_CONFIG: {
     // DO NOT CHANGE THE MODEL DEFAULT WITHOUT ASKING THE USER
-    model: 'gemini-2.5-flash',
+    model: 'gemini-1.5-flash',
     thinkingMode: 'enabled' as 'enabled' | 'disabled',
     temperature: 0.8,
     thinkingBudget: 3000,
