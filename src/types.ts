@@ -171,6 +171,7 @@ export interface GeminiCorpusContextType {
     status: CorpusSyncStatus;
     contextFiles: Map<string, GeminiFile>;
     syncCorpus: () => Promise<void>;
+    forceResync: () => Promise<void>;
     syncStatus: string; 
 }
 

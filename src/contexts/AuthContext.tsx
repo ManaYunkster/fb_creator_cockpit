@@ -1,8 +1,7 @@
-
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Auth, User, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../firebase'; // Assuming 'auth' is exported from your firebase config
-import { log } from '../services/loggingService';
+import { auth } from '@/firebase'; // Assuming 'auth' is exported from your firebase config
+import { log } from '@/services/loggingService';
 
 // Define the shape of the context's value
 interface AuthContextType {

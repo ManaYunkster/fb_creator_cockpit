@@ -1,5 +1,5 @@
-import { LogLevelString } from '../types';
-import { APP_CONFIG } from '../config/app_config';
+import { LogLevelString } from '@/types';
+import { APP_CONFIG } from '@/config/app_config';
 
 let currentLevel: LogLevelString = APP_CONFIG.DEFAULT_LOG_LEVEL; // Default level
 
