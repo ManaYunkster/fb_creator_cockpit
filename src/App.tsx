@@ -6,10 +6,11 @@ import ToolPanel from './components/ToolPanel';
 import Logo from './components/icons/Logo';
 import ContentCorpusUploader from './components/ContentCorpusUploader';
 import DataProvider, { DataContext } from './contexts/DataContext';
-import SettingsProvider, { SettingsContext } from './contexts/SettingsContext';
+import SettingsProvider from './contexts/SettingsContext';
 import ContentProvider, { ContentContext } from './contexts/ContentContext';
 import GeminiCorpusProvider, { geminiCorpusContext } from './contexts/GeminiCorpusContext';
 import { TestModeProvider, TestModeContext } from './contexts/TestModeContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useCorpusProcessor } from './hooks/useCorpusProcessor';
 import { APP_CONFIG } from './config/app_config';
 import GlobalSettingsPanel from './components/GlobalSettingsPanel';
@@ -21,6 +22,8 @@ import PencilIcon from './components/icons/PencilIcon';
 import { log } from './services/loggingService';
 import * as dbService from './services/dbService';
 import { initPrompts } from './services/promptService';
+import LogoutButton from './components/LogoutButton';
+import LoginPage from './components/LoginPage';
 
 const AppInitializer: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [isInitialized, setIsInitialized] = useState(false);
@@ -253,6 +256,7 @@ const AppContent: React.FC = () => {
       <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-3">
         {!activeTool && (
           <>
+            <LogoutButton />
             <button onClick={() => setIsPromptManagerOpen(true)} title="Prompt Inspector" className="p-3 bg-gray-700 text-gray-300 rounded-full shadow-lg hover:bg-gray-600 hover:text-white transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500 animate-fade-in">
                 <MagnifyingGlassIcon className="w-6 h-6" />
             </button>
@@ -269,20 +273,36 @@ const AppContent: React.FC = () => {
   );
 };
 
+const AppWrapper: React.FC = () => {
+  const { currentUser, loading } = useAuth();
+
+  if (loading) {
+    return (
+        <div className="flex items-center justify-center h-screen bg-gray-900 text-white">
+            <p>Loading...</p>
+        </div>
+    );
+  }
+
+  return currentUser ? <AppContent /> : <LoginPage />;
+}
+
 const App: React.FC = () => (
-  <TestModeProvider>
-    <AppInitializer>
-      <DataProvider>
-        <SettingsProvider>
-          <ContentProvider>
-            <GeminiCorpusProvider>
-              <AppContent />
-            </GeminiCorpusProvider>
-          </ContentProvider>
-        </SettingsProvider>
-      </DataProvider>
-    </AppInitializer>
-  </TestModeProvider>
+  <AuthProvider>
+    <TestModeProvider>
+      <AppInitializer>
+        <DataProvider>
+          <SettingsProvider>
+            <ContentProvider>
+              <GeminiCorpusProvider>
+                <AppWrapper />
+              </GeminiCorpusProvider>
+            </ContentProvider>
+          </SettingsProvider>
+        </DataProvider>
+      </AppInitializer>
+    </TestModeProvider>
+  </AuthProvider>
 );
 
 export default App;

@@ -1,38 +1,62 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { log } from '@/services/loggingService';
 
+declare const google: any; // Declare the 'google' global variable
+
 const LoginPage: React.FC = () => {
-    const { currentUser, loginWithGoogle, loginWithEmail, signupWithEmail, loading } = useAuth();
+    const { currentUser, loginWithGoogle, loginWithEmail, loading } = useAuth();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [isSignUp, setIsSignUp] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const handleGoogleLogin = async () => {
-        log.info('LoginPage: Initiating Google login.');
+    useEffect(() => {
+        if (!loading) {
+            log.info('LoginPage: Initializing Google One-tap.');
+            try {
+                google.accounts.id.initialize({
+                    client_id: import.meta.env.VITE_FIREBASE_CLIENT_ID,
+                    callback: handleGoogleOneTap,
+                });
+            } catch (e) {
+                log.error('LoginPage: Google One-tap initialization failed.', e);
+                setError('Could not initialize Google Sign-In.');
+            }
+        }
+    }, [loading]);
+
+    const handleGoogleOneTap = async (response: any) => {
+        log.info('LoginPage: Google One-tap credential received.');
+        setError(null);
         try {
-            await loginWithGoogle();
+            await loginWithGoogle(response.credential);
         } catch (error) {
-            log.error('LoginPage: Google login failed.', error);
-            setError('Failed to sign in with Google.');
+            log.error('LoginPage: Google One-tap login failed.', error);
+            setError('Failed to sign in with Google One-tap.');
+        }
+    };
+
+    const handleGoogleSignInClick = () => {
+        log.info('LoginPage: "Sign in with Google" button clicked, triggering prompt.');
+        setError(null);
+        try {
+            google.accounts.id.prompt(); // Manually trigger the prompt on click
+        } catch (error) {
+            log.error('LoginPage: Failed to trigger Google One-tap prompt.', error);
+            setError('Could not start Google Sign-In.');
         }
     };
 
     const handleEmailAuth = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
-        log.info(`LoginPage: Attempting to ${isSignUp ? 'sign up' : 'sign in'} with email.`);
+        log.info(`LoginPage: Attempting to sign in with email.`);
         try {
-            if (isSignUp) {
-                await signupWithEmail(email, password);
-            } else {
-                await loginWithEmail(email, password);
-            }
+            await loginWithEmail(email, password);
         } catch (err: any) {
             log.error('LoginPage: Email authentication failed', { code: err.code, message: err.message });
-            setError(err.message || `Failed to ${isSignUp ? 'sign up' : 'sign in'}.`);
+            setError(err.message || `Failed to sign in.`);
         }
     };
 
@@ -49,11 +73,10 @@ const LoginPage: React.FC = () => {
         return <Navigate to="/" />;
     }
 
-    // User is not logged in, show the login/signup form.
     return (
         <div className="flex items-center justify-center h-screen bg-gray-900">
             <div className="p-8 bg-gray-800 rounded-lg shadow-lg w-full max-w-md">
-                <h1 className="text-3xl font-bold text-white text-center mb-4">{isSignUp ? 'Create Account' : 'Sign In'}</h1>
+                <h1 className="text-3xl font-bold text-white text-center mb-4">Sign In</h1>
                 {error && <p className="text-red-400 text-center mb-4">{error}</p>}
                 <form onSubmit={handleEmailAuth}>
                     <div className="mb-4">
@@ -82,29 +105,18 @@ const LoginPage: React.FC = () => {
                         type="submit"
                         className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded-lg transition duration-300"
                     >
-                        {isSignUp ? 'Sign Up' : 'Sign In'}
+                        Sign In
                     </button>
                 </form>
                 <div className="text-center my-4">
                     <span className="text-gray-500">OR</span>
                 </div>
                 <button
-                    onClick={handleGoogleLogin}
+                    onClick={handleGoogleSignInClick}
                     className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-lg transition duration-300"
                 >
                     Sign in with Google
                 </button>
-                <div className="text-center mt-6">
-                    <button
-                        onClick={() => {
-                            setIsSignUp(!isSignUp);
-                            setError(null);
-                        }}
-                        className="text-blue-400 hover:underline"
-                    >
-                        {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
-                    </button>
-                </div>
             </div>
         </div>
     );

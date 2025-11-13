@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Auth, User, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { Auth, User, onAuthStateChanged, GoogleAuthProvider, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, signInWithCredential } from 'firebase/auth';
 import { auth } from '@/firebase'; // Assuming 'auth' is exported from your firebase config
 import { log } from '@/services/loggingService';
 
@@ -7,14 +7,14 @@ import { log } from '@/services/loggingService';
 interface AuthContextType {
     currentUser: User | null;
     loading: boolean;
-    loginWithGoogle: () => Promise<void>;
+    loginWithGoogle: (idToken: string) => Promise<void>;
     logout: () => Promise<void>;
     signupWithEmail: (email: string, password: string) => Promise<void>;
     loginWithEmail: (email: string, password: string) => Promise<void>;
 }
 
 // Create the context with a default undefined value
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Custom hook to use the AuthContext
 export const useAuth = () => {
@@ -47,14 +47,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return unsubscribe;
     }, []);
 
-    const loginWithGoogle = async () => {
+    const loginWithGoogle = async (idToken: string) => {
         setLoading(true);
+        log.info('AuthProvider: Initiating Google One-tap login.');
         try {
-            const provider = new GoogleAuthProvider();
-            await signInWithPopup(auth, provider);
-            log.info('AuthProvider: Successfully logged in with Google.');
+            const credential = GoogleAuthProvider.credential(idToken);
+            await signInWithCredential(auth, credential);
+            log.info('AuthProvider: Successfully logged in with Google One-tap.');
         } catch (error) {
-            log.error('AuthProvider: Error logging in with Google', error);
+            log.error('AuthProvider: Error logging in with Google One-tap', error);
         } finally {
             setLoading(false);
         }

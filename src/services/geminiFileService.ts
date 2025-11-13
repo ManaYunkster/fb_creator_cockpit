@@ -5,7 +5,7 @@ import { APP_CONFIG } from "../config/app_config";
 import { parseInternalFileName } from '../config/file_naming_config';
 import * as dbService from './dbService';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
 // --- Stream Debug Wrapper ---
 async function* logStreamWrapper(stream: AsyncIterable<GenerateContentResponse>, callName: string): AsyncIterable<GenerateContentResponse> {
@@ -122,9 +122,9 @@ interface GeminiApiListedModel {
 
 export const listModels = async (): Promise<AvailableModel[]> => {
     try {
-        const apiKey = process.env.API_KEY;
+        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
         if (!apiKey) {
-            throw new Error("API_KEY environment variable is not configured.");
+            throw new Error("VITE_GEMINI_API_KEY environment variable is not configured.");
         }
         
         const fetchFn = () => fetch(`https://generativelanguage.googleapis.com/v1/models`, {
