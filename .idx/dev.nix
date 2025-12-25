@@ -5,7 +5,7 @@
     pkgs.nodejs_20  # Use underscore and a version available
   ];
 
-  idx.extensions = [ "svelte.svelte-vscode" "vue.volar" ];
+  idx.extensions = [ "svelte.svelte-vscode" "vue.volar"  "google.gemini-cli-vscode-ide-companion"];
 
   idx.previews = {
     enable = true; # Required to activate the preview panel
