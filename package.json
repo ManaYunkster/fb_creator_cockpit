@@ -14,14 +14,14 @@
     "firebase": "^12.5.0",
     "jszip": "3.10.1",
     "papaparse": "5.4.1",
-    "react": "^19.1.2",
-    "react-dom": "^19.1.2",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
     "react-router-dom": "^7.9.5"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
-    "firebase--admin": "^13.6.0",
+    "firebase-admin": "^13.6.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   },
