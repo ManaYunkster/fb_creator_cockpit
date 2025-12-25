@@ -146,7 +146,7 @@ export const AI_PROMPTS = {
         const articleFile = new File([postHtmlContent], "article.html", { type: 'text/html' });
         const uploadedArticleFile = await geminiFileService.uploadFileToApiOnly(articleFile, { displayName: "article.html" });
 
-        return { systemInstruction, userPrompt, files: [...verifiedContextFiles, uploadedArticleFile] };
+        return { systemInstruction, userPrompt, files: [...verifiedContextFiles, uploadedArticleFile], tempFiles: [uploadedArticleFile] };
     },
     getQuoteFinderPrompt: (mode: 'quote' | 'callback', workingArticleContent: string, brandContext?: string) => {
         const systemInstructionTemplate = getPromptContent(mode === 'quote' ? SYSTEM_INSTRUCTIONS.QUOTE_FINDER_SYSTEM.id : SYSTEM_INSTRUCTIONS.QUOTE_FINDER_CALLBACK_SYSTEM.id);

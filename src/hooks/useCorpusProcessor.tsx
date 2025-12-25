@@ -3,7 +3,6 @@ import React, { useState, useCallback, useContext } from 'react';
 import JSZip from 'jszip';
 import Papa from 'papaparse';
 import { DataContext } from '../contexts/DataContext';
-import { geminiCorpusContext } from '../contexts/GeminiCorpusContext';
 import { ContentContext } from '../contexts/ContentContext';
 import * as corpusProcessingService from '../services/corpusProcessingService';
 import { log } from '../services/loggingService';
@@ -22,7 +21,6 @@ export const useCorpusProcessor = (options: CorpusProcessorOptions = {}) => {
     const [isDragging, setIsDragging] = useState<boolean>(false);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
     const { setPosts, resetData, setDeliveryRecords, setOpenRecords, setSubscriberRecords, setIsCorpusReady } = useContext(DataContext);
-    const { syncCorpus } = useContext(geminiCorpusContext);
     const { loadContext } = useContext(ContentContext);
 
     const resetState = useCallback(async () => {
@@ -108,7 +106,6 @@ export const useCorpusProcessor = (options: CorpusProcessorOptions = {}) => {
             log.info(`useCorpusProcessor: Registered ${corpusAssetsToRegister.length} generated corpus assets in the local DB for future sync.`);
             
             await loadContext();
-            await syncCorpus();
 
             setIsCorpusReady(true);
             setSuccessMessage(`Corpus processed: ${processedData.posts.length} posts and ${newFileContents.size} total files loaded! Sync initiated.`);
@@ -121,7 +118,7 @@ export const useCorpusProcessor = (options: CorpusProcessorOptions = {}) => {
         } finally {
             setIsLoading(false);
         }
-    }, [resetData, setPosts, setDeliveryRecords, setOpenRecords, setSubscriberRecords, setIsCorpusReady, options.onProcessSuccess, loadContext, syncCorpus]);
+    }, [resetData, setPosts, setDeliveryRecords, setOpenRecords, setSubscriberRecords, setIsCorpusReady, options.onProcessSuccess, loadContext]);
 
     const dragHandlers = {
       onDrop: (event: React.DragEvent<HTMLDivElement>) => {

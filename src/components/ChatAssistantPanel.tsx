@@ -61,11 +61,11 @@ const ChatAssistantPanel: React.FC = () => {
     }, [contextFiles]);
     
     useEffect(() => {
-        // If a chat session exists and the context changes, show a warning.
+        // If a chat session exists and the context or model changes, show a warning.
         if (chatRef.current) {
             setHasContextChanged(true);
         }
-    }, [activeProfiles, activeCorpusPills]);
+    }, [activeProfiles, activeCorpusPills, modelConfig.model]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -133,7 +133,7 @@ const ChatAssistantPanel: React.FC = () => {
         setAttachedUrls([]);
 
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
             const parts: any[] = [];
             const combinedMessageText = `${userMessageText} ${attachedUrls.join(' ')}`.trim();
@@ -219,8 +219,21 @@ const ChatAssistantPanel: React.FC = () => {
         } catch (e: any) {
             log.error('Chat Assistant Error:', e);
             setError(e.message || 'An error occurred while communicating with the AI.');
-            // On error, remove the optimistic user message and the empty model bubble
-            setMessages(prev => prev.slice(0, -1));
+            // On error, remove the optimistic user message and any empty model bubble.
+            setMessages(prev => {
+                if (prev.length === 0) return prev;
+                const updated = [...prev];
+                const last = updated[updated.length - 1];
+                if (last.role === 'model') {
+                    updated.pop();
+                    if (updated.length > 0 && updated[updated.length - 1].role === 'user') {
+                        updated.pop();
+                    }
+                } else {
+                    updated.pop();
+                }
+                return updated;
+            });
         } finally {
             setIsLoading(false);
             isGeneratingRef.current = false;
@@ -463,4 +476,3 @@ const ChatAssistantPanel: React.FC = () => {
 };
 
 export default ChatAssistantPanel;
-

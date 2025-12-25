@@ -183,8 +183,6 @@ const FileManagementPanel: React.FC = () => {
             await forceResync();
         } catch (err: any) {
             setError(err.message || 'An error occurred during force resync.');
-        } finally {
-            await syncCorpus(); // Re-sync after force resync
         }
     };
 

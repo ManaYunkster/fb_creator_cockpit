@@ -161,9 +161,10 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
             
             // Step 5: Full remote sync and reconciliation
             const rawRemoteFiles = await geminiFileService.listGeminiFiles();
-            log.info('Deduplicating remote files by displayName...');
+            const appRemoteFiles = rawRemoteFiles.filter(file => file.displayName?.startsWith('__cc_'));
+            log.info(`Deduplicating ${appRemoteFiles.length} app-managed remote files by displayName...`);
             const remoteFilesByDisplayName = new Map<string, GeminiFile[]>();
-            rawRemoteFiles.forEach(file => {
+            appRemoteFiles.forEach(file => {
                 if (file.displayName) {
                     const group = remoteFilesByDisplayName.get(file.displayName) || [];
                     group.push(file);
@@ -202,6 +203,9 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
             currentLocalMetadata.forEach(localMeta => {
                 if (localMeta.isPermanent) {
                     log.info(`Skipping deletion check for permanent file: ${localMeta.displayName}`);
+                    return;
+                }
+                if (!localMeta.displayName?.startsWith('__cc_')) {
                     return;
                 }
                 if (localMeta.name.startsWith('files/') && !remoteFilesMap.has(localMeta.displayName)) {
@@ -284,7 +288,8 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
             
             // Final verification and state merge step
             setSyncStatus('verifying');
-            const finalRemoteFilesList = await geminiFileService.listGeminiFiles();
+            const finalRemoteFilesList = (await geminiFileService.listGeminiFiles())
+                .filter(file => file.displayName?.startsWith('__cc_'));
             const finalLocalFiles = await dbService.getAll<GeminiFile>('files');
             const finalFilesMap = new Map<string, GeminiFile>();
 
@@ -314,7 +319,7 @@ export const GeminiCorpusProvider: React.FC<GeminiCorpusProviderProps> = ({ chil
             setSyncStatus('error');
         } finally {
             isSyncing.current = false;
-            setSyncStatus('awaiting-sync');
+            setSyncStatus(prev => (prev === 'sync-complete' || prev === 'error') ? prev : 'awaiting-sync');
         }
     }, []);
 

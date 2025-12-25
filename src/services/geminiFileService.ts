@@ -172,6 +172,23 @@ export const listModels = async (): Promise<AvailableModel[]> => {
     }
 };
 
+export const assertGeminiApiAvailable = async (): Promise<void> => {
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) {
+        throw new Error("VITE_GEMINI_API_KEY environment variable is not configured.");
+    }
+
+    const fetchFn = () => fetch(`https://generativelanguage.googleapis.com/v1/models`, {
+        headers: { 'X-Goog-Api-Key': apiKey },
+    });
+    const response = await retryWithBackoff(fetchFn);
+
+    if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Gemini API unavailable: ${response.status} ${response.statusText} - ${errorBody}`);
+    }
+};
+
 
 const getMimeTypeFromFile = (file: File): string => {
   const extension = file.name.split('.').pop()?.toLowerCase();

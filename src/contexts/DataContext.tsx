@@ -1,6 +1,6 @@
 import React, { createContext, useState, ReactNode, useCallback, useEffect, useMemo } from 'react';
 import JSZip from 'jszip';
-import { Post, DeliveryRecord, OpenRecord, SubscriberRecord, DataContextType } from '../types';
+import { Post, DeliveryRecord, OpenRecord, SubscriberRecord, DataContextType, GeminiFile, FileContentRecord } from '../types';
 import * as corpusProcessingService from '../services/corpusProcessingService';
 import { log } from '../services/loggingService';
 import * as dbService from '../services/dbService';
@@ -159,8 +159,24 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
                 dbService.clearStore('opens'),
                 dbService.clearStore('deliveries'),
                 dbService.clearStore('corpus_files'),
-                dbService.clearStore('file_contents'),
             ]);
+            const files = await dbService.getAll<GeminiFile>('files');
+            const corpusFileNames = files
+                .filter(file => file.displayName?.startsWith('__cc_corpus_'))
+                .map(file => file.name);
+            if (corpusFileNames.length > 0) {
+                log.info(`DataContext: Deleting ${corpusFileNames.length} corpus file metadata records.`);
+                await Promise.all(corpusFileNames.map(name => dbService.del('files', name)));
+            }
+
+            const fileContents = await dbService.getAll<FileContentRecord>('file_contents');
+            const corpusContentNames = fileContents
+                .filter(record => record.internalName.startsWith('__cc_corpus_'))
+                .map(record => record.internalName);
+            if (corpusContentNames.length > 0) {
+                log.info(`DataContext: Deleting ${corpusContentNames.length} corpus file content records.`);
+                await Promise.all(corpusContentNames.map(name => dbService.del('file_contents', name)));
+            }
         } catch(e) {
             log.error('DataContext: Failed to clear IndexedDB stores on reset.', e);
         }

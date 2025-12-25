@@ -130,7 +130,7 @@ const SocialPostAssistant: React.FC = () => {
     }, []);
     
     const callGeminiForPost = async (quote: string | null, feedback?: string, fetchedContent?: string | null, documentsForPrompt?: ContextDocument[]): Promise<GenerateContentResponse> => {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
         const matchingPost = availablePosts.find(p => p.post_url === url);
         
         const lengthLabel = VENUE_LENGTH_CONFIG[venue]?.options.find(o => o.id === postLength)?.label || '';
@@ -166,8 +166,19 @@ const SocialPostAssistant: React.FC = () => {
             const postHtmlContent = corpusFileRecord ? corpusFileRecord.content : '';
 
             if (postHtmlContent) {
-                const { systemInstruction, userPrompt, files } = await AI_PROMPTS.getSocialPostPromptWithFiles(venue, lengthLabel, contextFilesToInclude, postHtmlContent, matchingPost.title, quote, url, brandContextString, feedback);
-                return geminiFileService.generateContentWithFiles(userPrompt, files, modelConfig, systemInstruction);
+                const { systemInstruction, userPrompt, files, tempFiles } = await AI_PROMPTS.getSocialPostPromptWithFiles(venue, lengthLabel, contextFilesToInclude, postHtmlContent, matchingPost.title, quote, url, brandContextString, feedback);
+                try {
+                    return await geminiFileService.generateContentWithFiles(userPrompt, files, modelConfig, systemInstruction);
+                } finally {
+                    if (tempFiles?.length) {
+                        log.info(`Cleaning up ${tempFiles.length} temporary file(s) from SocialPostAssistant.`);
+                        await Promise.all(
+                            tempFiles.map(file => geminiFileService.deleteFileFromApiOnly(file.name).catch(error => {
+                                log.error(`Failed to clean up temp file "${file.name}".`, error);
+                            }))
+                        );
+                    }
+                }
             } else {
                 throw new Error(`Could not find HTML content for corpus post ID ${matchingPost.post_id}.`);
             }
@@ -230,7 +241,7 @@ const SocialPostAssistant: React.FC = () => {
         }
 
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
             
             const itemsToProcess: { quote: string | null; imageUrl: string | null }[] = [];
             const imageInspirations = inspirations.filter((i): i is ImageInspiration => i.type === 'image');

@@ -59,6 +59,10 @@ The following table lists all currently configured prefix combinations, derived 
 | `__cc_corpus_subscribers__`     | `corpus`      | `subscribers` | A file containing subscriber data, generated from the Substack corpus upload.|
 | `__cc_reg-test_internal__`      | `reg-test`    | `internal`    | A file used for an automated regression test.                                |
 
+## Context Document Lifecycle
+
+Context documents are only loaded when the Gemini API is available, because classification requires a live model call. New context files added through the File Management tool are classified on upload and stored in `permanent_documents`. Removing a context file deletes its entry from `permanent_documents`.
+
 ## Single Source of Truth
 
 The mapping between a user's intent ("Purpose") and the resulting `[context]` and `[scope]` prefixes is defined and managed in a single configuration file:

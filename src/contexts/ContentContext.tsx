@@ -36,6 +36,7 @@ export const ContentProvider: React.FC<ContentProviderProps> = ({ children }) =>
         setIsContextReady(false);
 
         try {
+            await geminiFileService.assertGeminiApiAvailable();
             await initPrompts();
             
             let docs = await dbService.getAll<ContextDocument>('permanent_documents');
@@ -146,11 +147,69 @@ export const ContentProvider: React.FC<ContentProviderProps> = ({ children }) =>
     }, [loadContext]);
 
     const addContextDocument = useCallback(async (file: File, internalName: string) => {
-        // This function will be implemented later to add new permanent documents
+        log.info('ContentContext: addContextDocument', { internalName, fileName: file.name });
+        await geminiFileService.assertGeminiApiAvailable();
+        await initPrompts();
+
+        const content = await file.text();
+        if (!content.trim()) {
+            throw new Error('Context document is empty.');
+        }
+
+        const modelConfigString = window.localStorage.getItem('modelConfig');
+        const modelConfig = modelConfigString ? { ...APP_CONFIG.DEFAULT_MODEL_CONFIG, ...JSON.parse(modelConfigString) } : APP_CONFIG.DEFAULT_MODEL_CONFIG;
+        const classificationSystemInstruction = AI_PROMPTS.CONTEXT_CLASSIFICATION.SYSTEM_INSTRUCTION;
+
+        let classification = 'General';
+        let summary = 'No summary available.';
+
+        try {
+            const classificationResponse = await geminiFileService.generateContent({
+                model: modelConfig.model,
+                contents: content,
+                config: {
+                    systemInstruction: classificationSystemInstruction,
+                    responseMimeType: 'application/json',
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            classification: { type: Type.STRING },
+                            summary: { type: Type.STRING },
+                        },
+                    },
+                    safetySettings: modelConfig.safetySettings,
+                },
+            });
+
+            if (classificationResponse?.text) {
+                const parsed = JSON.parse(classificationResponse.text.trim());
+                classification = parsed.classification || classification;
+                summary = parsed.summary || summary;
+            }
+        } catch (error) {
+            log.error('ContentContext: Failed to classify document, using defaults.', error);
+        }
+
+        const doc = {
+            id: internalName,
+            content,
+            classification,
+            summary,
+            profile: getProfileFromId(internalName),
+            isPermanent: true,
+        };
+
+        await dbService.put('permanent_documents', doc);
+        setContextDocuments(prev => {
+            const filtered = prev.filter(existing => existing.id !== internalName);
+            return [...filtered, doc];
+        });
     }, []);
 
     const removeContextDocument = useCallback(async (internalName: string) => {
-        // This function will be implemented later to remove permanent documents
+        log.info('ContentContext: removeContextDocument', { internalName });
+        await dbService.del('permanent_documents', internalName);
+        setContextDocuments(prev => prev.filter(doc => doc.id !== internalName));
     }, []);
 
     const value = useMemo(() => ({
